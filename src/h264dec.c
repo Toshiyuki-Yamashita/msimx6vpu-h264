@@ -141,6 +141,7 @@ err:
 static int msimx6vpu_h264_read(void *src, void *dest, int n) {
 	//TODO: Find a better way
 	memcpy(dest, src, n);
+	
 	return n;
 }
 
@@ -235,11 +236,15 @@ update:
 	return 0;
 }
 
+static void msimx6vpu_h264_vpu_free_fb(struct imx6vpu_data d) {
+	ms_free(d.fb);
+}
+
 static int msimx6vpu_h264_vpu_alloc_fb(struct imx6vpu_data d) {
 	DecBufInfo bufinfo;
 	RetCode ret;
 	
-	d.fb = calloc(d.regfbcount, sizeof(FrameBuffer));
+	d.fb = ms_malloc0(d.regfbcount * sizeof(FrameBuffer));
 	if (d.fb == NULL) {
 		ms_error("[msimx6vpu_h264_dec] failed to allocate fb");
 		return -1;
@@ -333,11 +338,11 @@ static int msimx6vpu_h264_vpu_dec_init(struct imx6vpu_data d) {
 	return 0;
 }
 
-/*
+
 static void msimx6vpu_h264_vpu_dec_start(struct imx6vpu_data d) {
-	
+	ms_error("[msimx6vpu_h264_dec] no implemented yet");
 }
-*/
+
 
 static int msimx6vpu_h264_vpu_dec_close(struct imx6vpu_data d) {
 	RetCode ret;
@@ -359,8 +364,115 @@ static int msimx6vpu_h264_vpu_dec_close(struct imx6vpu_data d) {
  * Implementation of the decoder                                              *
  *****************************************************************************/
 
+static void update_sps(MSIMX6VPUH264DecData *d, mblk_t *sps){
+	if (d->sps)
+		freemsg(d->sps);
+	d->sps=dupb(sps);
+}
+
+static void update_pps(MSIMX6VPUH264DecData *d, mblk_t *pps){
+	if (d->pps)
+		freemsg(d->pps);
+	if (pps) d->pps=dupb(pps);
+	else d->pps=NULL;
+}
+
+static bool_t check_sps_change(MSIMX6VPUH264DecData *d, mblk_t *sps){
+	bool_t ret=FALSE;
+	if (d->sps){
+		ret=(msgdsize(sps)!=msgdsize(d->sps)) || (memcmp(d->sps->b_rptr,sps->b_rptr,msgdsize(sps))!=0);
+		if (ret) {
+			ms_message("SPS changed ! %i,%i",(int)msgdsize(sps),(int)msgdsize(d->sps));
+			update_sps(d,sps);
+			update_pps(d,NULL);
+		}
+	} else {
+		ms_message("Receiving first SPS");
+		update_sps(d,sps);
+	}
+	return ret;
+}
+
+static bool_t check_pps_change(MSIMX6VPUH264DecData *d, mblk_t *pps){
+	bool_t ret=FALSE;
+	if (d->pps){
+		ret=(msgdsize(pps)!=msgdsize(d->pps)) || (memcmp(d->pps->b_rptr,pps->b_rptr,msgdsize(pps))!=0);
+		if (ret) {
+			ms_message("PPS changed ! %i,%i",(int)msgdsize(pps),(int)msgdsize(d->pps));
+			update_pps(d,pps);
+		}
+	}else {
+		ms_message("Receiving first PPS");
+		update_pps(d,pps);
+	}
+	return ret;
+}
+
+
+static void enlarge_bitstream(MSIMX6VPUH264DecData *d, int new_size){
+	d->bitstream_size = new_size;
+	d->bitstream = ms_realloc(d->bitstream, d->bitstream_size);
+}
+
+static int nalusToFrame(MSIMX6VPUH264DecData *d, MSQueue *naluq, bool_t *new_sps_pps){
+	mblk_t *im;
+	uint8_t *dst=d->bitstream,*src,*end;
+	int nal_len;
+	bool_t start_picture=TRUE;
+	uint8_t nalu_type;
+	*new_sps_pps=FALSE;
+	end=d->bitstream+d->bitstream_size;
+	while((im=ms_queue_get(naluq))!=NULL){
+		src=im->b_rptr;
+		nal_len=im->b_wptr-src;
+		if (dst+nal_len+100>end){
+			int pos=dst-d->bitstream;
+			enlarge_bitstream(d, d->bitstream_size+nal_len+100);
+			dst=d->bitstream+pos;
+			end=d->bitstream+d->bitstream_size;
+		}
+		if (src[0]==0 && src[1]==0 && src[2]==0 && src[3]==1){
+			int size=im->b_wptr-src;
+			/*workaround for stupid RTP H264 sender that includes nal markers */
+			memcpy(dst,src,size);
+			dst+=size;
+		}else{
+			nalu_type=(*src) & ((1<<5)-1);
+			if (nalu_type==7)
+				*new_sps_pps=check_sps_change(d,im) || *new_sps_pps;
+			if (nalu_type==8)
+				*new_sps_pps=check_pps_change(d,im) || *new_sps_pps;
+			if (start_picture || nalu_type==7/*SPS*/ || nalu_type==8/*PPS*/ ){
+				*dst++=0;
+				start_picture=FALSE;
+			}
+		
+			/*prepend nal marker*/
+			*dst++=0;
+			*dst++=0;
+			*dst++=1;
+			*dst++=*src++;
+			while(src<(im->b_wptr-3)){
+				if (src[0]==0 && src[1]==0 && src[2]<3){
+					*dst++=0;
+					*dst++=0;
+					*dst++=3;
+					src+=2;
+				}
+				*dst++=*src++;
+			}
+			*dst++=*src++;
+			*dst++=*src++;
+			*dst++=*src++;
+		}
+		freemsg(im);
+	}
+	return dst-d->bitstream;
+}
+
 static void msimx6vpu_h264_dec_init(MSFilter *f) {
 	MSIMX6VPUH264DecData *d = (MSIMX6VPUH264DecData *)ms_new(MSIMX6VPUH264DecData, 1);
+	d->configure_done = FALSE;
 	d->sps = NULL;
 	d->pps = NULL;
 	d->outbuf.w = 0;
@@ -368,13 +480,17 @@ static void msimx6vpu_h264_dec_init(MSFilter *f) {
 	d->vsize.width = MS_VIDEO_SIZE_VGA_W;
 	d->vsize.height = MS_VIDEO_SIZE_VGA_H;
 	
-	msimx6vpu_h264_vpu_dec_open(d->vpu);
+	if (msimx6vpu_h264_vpu_dec_open(d->vpu) < 0) {
+		ms_error("[msimx6vpu_h264_dec] failed to open the decoder");
+	}
+	
+	d->bitstream_size = 65536;
+	d->bitstream = ms_malloc0(d->bitstream_size);
 	
 	rfc3984_init(&d->unpacker);
 	d->packet_num = 0;
 	d->last_decoded_frame = 0;
 	d->last_error_reported_time = 0;
-	d->configure_done = FALSE;
 	f->data = d;
 }
 
@@ -385,15 +501,39 @@ static void msimx6vpu_h264_dec_preprocess(MSFilter *f) {
 
 static void msimx6vpu_h264_dec_process(MSFilter *f) {
 	MSIMX6VPUH264DecData *d = (MSIMX6VPUH264DecData*)f->data;
-	if (!d->configure_done) {
-		//TODO: Get bitstream first and pass it to following function
-		if (msimx6vpu_h264_vpu_fill_buffer(d->vpu, NULL) < 0) {
-			
+	mblk_t *im;
+	MSQueue nalus;
+	
+	ms_queue_init(&nalus);
+	while ((im = ms_queue_get(f->inputs[0])) != NULL) {
+		/*push the sps/pps given in sprop-parameter-sets if any*/
+		if ((d->packet_num == 0) && d->sps && d->pps) {
+			mblk_set_timestamp_info(d->sps, mblk_get_timestamp_info(im));
+			mblk_set_timestamp_info(d->pps, mblk_get_timestamp_info(im));
+			rfc3984_unpack(&d->unpacker, d->sps, &nalus);
+			rfc3984_unpack(&d->unpacker, d->pps, &nalus);
+			d->sps = NULL;
+			d->pps = NULL;
 		}
-		if (msimx6vpu_h264_vpu_dec_init(d->vpu) < 0) {
+		rfc3984_unpack(&d->unpacker, im, &nalus);
+		if (!ms_queue_empty(&nalus)) {
+			int size;
+			bool_t need_reinit=FALSE;
 			
+			size = nalusToFrame(d, &nalus, &need_reinit);
+			ms_message("[msimx6vpu_h264_dec] size read: %i", size);
+			if (!d->configure_done) {
+				if (msimx6vpu_h264_vpu_fill_buffer(d->vpu, d->bitstream) < 0) {
+					ms_error("[msimx6vpu_h264_dec] failed to fill the vpu's bitstream buffer");
+				}
+				if (msimx6vpu_h264_vpu_dec_init(d->vpu) < 0) {
+					ms_error("[msimx6vpu_h264_dec] failed to initialise the decoder");
+				}
+				d->configure_done = TRUE;
+			}
+			
+			msimx6vpu_h264_vpu_dec_start(d->vpu);
 		}
-		d->configure_done = TRUE;
 	}
 }
 
@@ -407,6 +547,12 @@ static void msimx6vpu_h264_dec_postprocess(MSFilter *f) {
 static void msimx6vpu_h264_dec_uninit(MSFilter *f) {
 	MSIMX6VPUH264DecData *d = (MSIMX6VPUH264DecData *)f->data;
 	msimx6vpu_h264_vpu_dec_close(d->vpu);
+	msimx6vpu_h264_vpu_free_fb(d->vpu);
+	rfc3984_uninit(&d->unpacker);
+	if (d->yuv_msg) freemsg(d->yuv_msg);
+	if (d->sps) freemsg(d->sps);
+	if (d->pps) freemsg(d->pps);
+	ms_free(d->bitstream);
 	ms_free(d);
 }
 
@@ -422,7 +568,7 @@ static int msimx6vpu_h264_reset_first_image(MSFilter *f, void *data) {
 
 static MSFilterMethod msimx6vpu_h264_dec_methods[] = {
 	{	MS_VIDEO_DECODER_RESET_FIRST_IMAGE_NOTIFICATION,	msimx6vpu_h264_reset_first_image	},
-	{	0,							NULL				}
+	{	0,							NULL					}
 };
 
 /******************************************************************************
