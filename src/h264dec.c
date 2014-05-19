@@ -591,3 +591,12 @@ MSFilterDesc msimx6vpu_h264_dec_desc = {
 	.methods = msimx6vpu_h264_dec_methods,
 	.flags = 0
 };
+
+/******************************************************************************
+ * Init routine								      *
+ *****************************************************************************/
+
+MS2_PUBLIC void libmsimx6vpu_h264_init(void) {
+        ms_filter_register(&msimx6vpu_h264_dec_desc);
+        ms_message("msimx6vpu-h264 decoder plugin registered.");
+}
