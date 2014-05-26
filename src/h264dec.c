@@ -593,10 +593,17 @@ MSFilterDesc msimx6vpu_h264_dec_desc = {
 };
 
 /******************************************************************************
- * Init routine								      *
+ * Init routines							      *
  *****************************************************************************/
 
-MS2_PUBLIC void libmsimx6vpu_h264_init(void) {
+MS2_PUBLIC void libmsimx6vpu_h264_init_dec(void) {
         ms_filter_register(&msimx6vpu_h264_dec_desc);
         ms_message("msimx6vpu-h264 decoder plugin registered.");
+}
+
+extern void libmsimx6vpu_h264_init_enc(void);
+
+MS2_PUBLIC void libmsimx6vpu_h264_init(void) {
+        libmsimx6vpu_h264_init_enc();
+	libmsimx6vpu_h264_init_dec();
 }
