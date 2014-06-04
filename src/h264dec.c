@@ -143,7 +143,7 @@ static int msimx6vpu_h264_read(void *src, void *dest, size_t n) {
 	//TODO: Find a better way
 	ms_message("[msimx6vpu_h264_dec] read %i from %p to %p", n, src, dest);
 	memcpy(dest, src, n);
-	
+	dest += n;
 	ms_message("[msimx6vpu_h264_dec] h264_read OK");
 	return n;
 }
@@ -174,7 +174,6 @@ static int msimx6vpu_h264_vpu_fill_buffer(IMX6VPUDATA *d, void *bitstream, int a
 	
 	target_addr = d->virt_buf_addr + (pa_write_ptr - d->phy_buf_addr);
 	if (target_addr + size > d->virt_buf_addr + STREAM_BUF_SIZE) {
-		ms_message("[msimx6vpu_h264_dec] arget_addr + size > d->virt_buf_addr + STREAM_BUF_SIZE");
 		room = (d->virt_buf_addr + STREAM_BUF_SIZE) - target_addr;
 		nread = msimx6vpu_h264_read(bitstream, (void *)target_addr, room);
 		if (nread <= 0) {
@@ -190,9 +189,11 @@ static int msimx6vpu_h264_vpu_fill_buffer(IMX6VPUDATA *d, void *bitstream, int a
 			eof = TRUE;
 		} else {
 			if (nread != room) {
+				ms_warning("[msimx6vpu_h264_dec] vpu_fill_buffer: unable to fill the requested size");
 				goto update;
 			}
 			
+			ms_message("[msimx6vpu_h264_dec] vpu_fill_buffer: read the remaining");
 			space = nread;
 			nread = msimx6vpu_h264_read(bitstream, (void *)d->virt_buf_addr, (size - room));
 			if (nread <= 0) {
@@ -211,7 +212,7 @@ static int msimx6vpu_h264_vpu_fill_buffer(IMX6VPUDATA *d, void *bitstream, int a
 			nread += space;
 		}
 	} else {
-		ms_message("[msimx6vpu_h264_dec] NOT arget_addr + size > d->virt_buf_addr + STREAM_BUF_SIZE");
+		ms_message("[msimx6vpu_h264_dec] vpu_fill_buffer: enough space for what we want to write");
 		nread = msimx6vpu_h264_read(bitstream, (void *)target_addr, available);
 		if (nread <= 0) {
 			ms_warning("[msimx6vpu_h264_dec] EOF or error");
@@ -236,7 +237,7 @@ update:
 		} else {
 			  ms_message("[msimx6vpu_h264_dec] vpu_DecUpdateBitstreamBuffer OK");
 		}
-	}/* else {
+	} else {
 		ret = vpu_DecUpdateBitstreamBuffer(d->handle, STREAM_BUF_SIZE);
 		if (ret != RETCODE_SUCCESS) {
 			ms_error("[msimx6vpu_h264_dec] vpu_DecUpdateBitstreamBuffer error: %d", ret);
@@ -244,7 +245,7 @@ update:
 		} else {
 			  ms_message("[msimx6vpu_h264_dec] vpu_DecUpdateBitstreamBuffer OK");
 		}
-	}*/
+	}
 	
 	ms_message("[msimx6vpu_h264_dec] vpu_fill_buffer OK");
 	return 0;
@@ -317,6 +318,7 @@ static int msimx6vpu_h264_vpu_dec_init(IMX6VPUDATA *d) {
 	d->lastPicWidth = initinfo.picWidth;
 	d->lastPicHeight = initinfo.picHeight;
 	ms_message("[msimx6vpu_h264_dec] decoder: width = %d, height = %d, frameRateRes = %lu, frameRateDiv = %lu, count = %u", initinfo.picWidth, initinfo.picHeight, initinfo.frameRateRes, initinfo.frameRateDiv, initinfo.minFrameBufferCount);
+	d->minfbcount = initinfo.minFrameBufferCount;
 	
 	// Let's use 2 more buffers than recommended
 	if (initinfo.interlace) {
@@ -551,8 +553,9 @@ static void msimx6vpu_h264_dec_process(MSFilter *f) {
 				}
 				if (msimx6vpu_h264_vpu_dec_init(d->vpu) < 0) {
 					ms_error("[msimx6vpu_h264_dec] failed to initialise the decoder");
+				} else {
+					d->configure_done = TRUE;
 				}
-				d->configure_done = TRUE;
 			}
 			
 			msimx6vpu_h264_vpu_dec_start(d->vpu);
@@ -572,7 +575,7 @@ static void msimx6vpu_h264_dec_uninit(MSFilter *f) {
 	MSIMX6VPUH264DecData *d = (MSIMX6VPUH264DecData *)f->data;
 	msimx6vpu_h264_vpu_dec_close(d->vpu);
 	rfc3984_uninit(&d->unpacker);
-	if (d->yuv_msg) freemsg(d->yuv_msg);
+	//if (d->yuv_msg) freemsg(d->yuv_msg);
 	if (d->sps) freemsg(d->sps);
 	if (d->pps) freemsg(d->pps);
 	ms_free(d->bitstream);
