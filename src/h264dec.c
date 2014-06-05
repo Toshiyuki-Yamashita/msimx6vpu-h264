@@ -26,6 +26,13 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include <vpu_lib.h>
 #include <vpu_io.h>
 
+typedef struct imx6vpu_framebuffer {
+	vpu_mem_desc desc;
+	FrameBuffer *fb;
+	int strideY;
+	int strideC;
+} IMX6VPUFrameBuffer;
+
 typedef struct imx6vpu_data {
 	DecHandle handle;
 	unsigned long virt_buf_addr;
@@ -40,18 +47,14 @@ typedef struct imx6vpu_data {
 	int stride;
 	int regfbcount;
 	int minfbcount;
-	FrameBuffer *fb;
-	struct frame_buf **pfbpool;
+	FrameBuffer *fbs;
+	IMX6VPUFrameBuffer **fbpool;
+	bool_t dec_frame_started;
 } IMX6VPUDATA;
 
 typedef struct _MSIMX6VPUH264DecData {
 	IMX6VPUDATA *vpu;
 	Rfc3984Context unpacker;
-	MSPicture outbuf;
-	MSVideoSize vsize;
-	uint64_t last_decoded_frame;
-	uint64_t last_error_reported_time;
-	mblk_t *yuv_msg;
 	mblk_t *sps;
 	mblk_t *pps;
 	uint8_t *bitstream;
@@ -59,6 +62,7 @@ typedef struct _MSIMX6VPUH264DecData {
 	unsigned int packet_num;
 	bool_t first_image_decoded;
 	bool_t configure_done;
+	MSPicture outbuf;
 } MSIMX6VPUH264DecData;
 
 #define PS_SAVE_SIZE		0x080000
@@ -128,7 +132,8 @@ static int msimx6vpu_h264_vpu_dec_open(IMX6VPUDATA *d) {
 	d->virt_buf_addr = mem_desc.virt_uaddr;
 	d->phy_buf_addr = mem_desc.phy_addr;
 	d->phy_ps_buf = ps_mem_desc.phy_addr;
-	ms_message("[msimx6vpu_h264_dec] vpu_dec_open successful");
+	d->dec_frame_started = FALSE;
+	
 	return 0;
 	
 err:
@@ -140,11 +145,9 @@ err:
 }
 
 static int msimx6vpu_h264_read(void *src, void *dest, size_t n) {
-	//TODO: Find a better way
-	ms_message("[msimx6vpu_h264_dec] read %i from %p to %p", n, src, dest);
+	//TODO: Find a better way ?
 	memcpy(dest, src, n);
 	dest += n;
-	ms_message("[msimx6vpu_h264_dec] h264_read OK");
 	return n;
 }
 
@@ -159,8 +162,6 @@ static int msimx6vpu_h264_vpu_fill_buffer(IMX6VPUDATA *d, void *bitstream, int a
 	if (ret != RETCODE_SUCCESS) {
 		ms_error("[msimx6vpu_h264_dec] vpu_DecGetBitstreamBuffer error: %d", ret);
 		return -1;
-	} else {
-		ms_message("[msimx6vpu_h264_dec] vpu_DecGetBitstreamBuffer OK");
 	}
 
 	if (space <= 0) {
@@ -168,7 +169,6 @@ static int msimx6vpu_h264_vpu_fill_buffer(IMX6VPUDATA *d, void *bitstream, int a
 		return 0;
 	} else {
 		size = ((space >> 9) << 9);
-		ms_message("[msimx6vpu_h264_dec] space %lu", space);
 	}
 	size = space;
 	
@@ -196,7 +196,6 @@ static int msimx6vpu_h264_vpu_fill_buffer(IMX6VPUDATA *d, void *bitstream, int a
 				goto update;
 			}
 			
-			ms_message("[msimx6vpu_h264_dec] vpu_fill_buffer: read the remaining");
 			space = nread;
 			nread = msimx6vpu_h264_read(bitstream, (void *)d->virt_buf_addr, available);
 			if (nread <= 0) {
@@ -215,7 +214,6 @@ static int msimx6vpu_h264_vpu_fill_buffer(IMX6VPUDATA *d, void *bitstream, int a
 			nread += space;
 		}
 	} else {
-		ms_message("[msimx6vpu_h264_dec] vpu_fill_buffer: enough space for what we want to write");
 		nread = msimx6vpu_h264_read(bitstream, (void *)target_addr, available);
 		if (nread <= 0) {
 			ms_warning("[msimx6vpu_h264_dec] EOF or error");
@@ -235,33 +233,64 @@ update:
 	if (!eof) {
 		ret = vpu_DecUpdateBitstreamBuffer(d->handle, nread);
 		if (ret != RETCODE_SUCCESS) {
-			ms_error("[msimx6vpu_h264_dec] vpu_DecUpdateBitstreamBuffer error: %d", ret);
+			ms_error("[msimx6vpu_h264_dec] vpu_DecUpdateBitstreamBuffer (1) error: %d", ret);
 			return -1;
-		} else {
-			  ms_message("[msimx6vpu_h264_dec] vpu_DecUpdateBitstreamBuffer OK");
 		}
 	} else {
 		ret = vpu_DecUpdateBitstreamBuffer(d->handle, STREAM_BUF_SIZE);
 		if (ret != RETCODE_SUCCESS) {
-			ms_error("[msimx6vpu_h264_dec] vpu_DecUpdateBitstreamBuffer error: %d", ret);
+			ms_error("[msimx6vpu_h264_dec] vpu_DecUpdateBitstreamBuffer (2) error: %d", ret);
 			return -1;
-		} else {
-			  ms_message("[msimx6vpu_h264_dec] vpu_DecUpdateBitstreamBuffer OK");
 		}
 	}
 	
-	ms_message("[msimx6vpu_h264_dec] vpu_fill_buffer OK");
 	return 0;
 }
 
 static int msimx6vpu_h264_vpu_alloc_fb(IMX6VPUDATA *d) {
 	DecBufInfo bufinfo;
 	RetCode ret;
+	int i, err;
 	
-	d->fb = ms_malloc0(d->regfbcount * sizeof(FrameBuffer));
-	if (d->fb == NULL) {
+	d->fbpool = (IMX6VPUFrameBuffer**) ms_malloc0(d->regfbcount * sizeof(IMX6VPUFrameBuffer *));
+	if (d->fbpool == NULL) {
+		ms_error("[msimx6vpu_h264_dec] failed to allocate fbpool");
+		return -1;
+	}
+	
+	d->fbs = ms_malloc0(d->regfbcount * sizeof(FrameBuffer));
+	if (d->fbs == NULL) {
 		ms_error("[msimx6vpu_h264_dec] failed to allocate fb");
 		return -1;
+	}
+		
+	for (i = 0; i < d->regfbcount; i++) {
+		d->fbpool[i] = (IMX6VPUFrameBuffer*) ms_malloc0(d->regfbcount * sizeof(IMX6VPUFrameBuffer));
+		
+		memset(&(d->fbpool[i]->desc), 0, sizeof(vpu_mem_desc));
+		d->fbpool[i]->desc.size = 3 * d->stride * d->picheight / 2;
+		d->fbpool[i]->desc.size += (d->stride * d->picheight) / 4;
+		err = IOGetPhyMem(&d->fbpool[i]->desc);
+		if (err) {
+			ms_error("[msimx6vpu_h264_dec] error getting phymem for buffer %i", i);
+			return -1;
+		}
+		
+		d->fbs[i].myIndex = i;
+		d->fbs[i].bufY = d->fbpool[i]->desc.phy_addr;
+		d->fbs[i].bufCb = d->fbs[i].bufY + d->stride * d->picheight;
+		d->fbs[i].bufCr = d->fbs[i].bufCb + (d->stride * d->picheight) / 4;
+		d->fbs[i].bufMvCol = d->fbs[i].bufCr + (d->stride * d->picheight) / 4;
+		
+		d->fbpool[i]->desc.virt_uaddr = IOGetVirtMem(&(d->fbpool[i]->desc));
+		if (d->fbpool[i]->desc.virt_uaddr <= 0) {
+			ms_error("[msimx6vpu_h264_dec] error getting virt mem for buffer %i", i);
+			return -1;
+		}
+		
+		d->fbpool[i]->fb = &(d->fbs[i]);
+		d->fbpool[i]->strideY = d->stride;
+		d->fbpool[i]->strideC = d->stride / 2;
 	}
 	
 	bufinfo.avcSliceBufInfo.bufferBase = d->phy_slice_buf;
@@ -271,12 +300,11 @@ static int msimx6vpu_h264_vpu_alloc_fb(IMX6VPUDATA *d) {
 	bufinfo.maxDecFrmInfo.maxMbY = d->picheight / 16;
 	bufinfo.maxDecFrmInfo.maxMbNum = d->stride * d->picheight / 256;
 	
-	ret = vpu_DecRegisterFrameBuffer(d->handle, d->fb, d->regfbcount, d->stride, &bufinfo);
+	ret = vpu_DecRegisterFrameBuffer(d->handle, d->fbs, d->regfbcount, d->stride, &bufinfo);
 	if (ret != RETCODE_SUCCESS) {
 		ms_error("[msimx6vpu_h264_dec] vpu_DecRegisterFrameBuffer error: %d", ret);
 		return -1;
 	}
-	ms_message("[msimx6vpu_h264_dec] vpu_alloc_fb OK");
 	
 	return 0;
 }
@@ -291,6 +319,7 @@ static int msimx6vpu_h264_vpu_dec_init(IMX6VPUDATA *d) {
 	vpu_DecSetEscSeqInit(d->handle, 0);
 	if (ret != RETCODE_SUCCESS) {
 		ms_error("[msimx6vpu_h264_dec] vpu_DecGetInitialInfo error: %d, errorcode: %ld", ret, initinfo.errorcode);
+		vpu_SWReset(d->handle, 0);
 		return -1;
 	}
 
@@ -350,66 +379,118 @@ static int msimx6vpu_h264_vpu_dec_init(IMX6VPUDATA *d) {
 		IOFreePhyMem(&slice_mem_desc);
 		return -1;
 	}
-	ms_message("[msimx6vpu_h264_dec] vpu_dec_init OK");
 
 	return 0;
 }
 
+static void msimx6vpu_h264_frame_to_mblkt(MSFilter *f, int index) {
+	MSIMX6VPUH264DecData *d;
+	IMX6VPUDATA *vpu;
+	mblk_t *yuv;
+	IMX6VPUFrameBuffer *framebuff;
+	MSVideoSize roi = {0};
+	uint8_t *src_planes[4];
+	int src_strides[4];
+	int offset;
+	
+	d = (MSIMX6VPUH264DecData *)f->data;
+	vpu = d->vpu;
+	framebuff = vpu->fbpool[index];
+	yuv = ms_yuv_buf_alloc(&d->outbuf, vpu->picwidth, vpu->picheight);
+	roi.width = d->outbuf.w;
+	roi.height = d->outbuf.h;
+	
+	offset = framebuff->desc.virt_uaddr - framebuff->desc.phy_addr;
+	src_planes[0] = framebuff->fb->bufY + offset;
+	src_planes[1] = framebuff->fb->bufCb + offset;
+	src_planes[2] = framebuff->fb->bufCr + offset;
+	src_planes[3] = NULL;
+	
+	src_strides[0] = framebuff->strideY;
+	src_strides[1] = framebuff->strideC;
+	src_strides[2] = framebuff->strideC;
+	src_strides[3] = 0;
+	
+	ms_message("[msimx6vpu_h264_dec] yuv copy from %p %i (%p %i)", src_planes[0], src_strides[0], d->outbuf.planes[0], d->outbuf.strides[0]);
+	ms_message("[msimx6vpu_h264_dec] yuv copy from %p %i (%p %i)", src_planes[1], src_strides[1], d->outbuf.planes[1], d->outbuf.strides[1]);
+	ms_message("[msimx6vpu_h264_dec] yuv copy from %p %i (%p %i)", src_planes[2], src_strides[2], d->outbuf.planes[2], d->outbuf.strides[2]);
+	ms_message("[msimx6vpu_h264_dec] yuv copy from %p %i (%p %i)", src_planes[3], src_strides[3], d->outbuf.planes[3], d->outbuf.strides[3]);
+	ms_yuv_buf_copy(src_planes, src_strides, d->outbuf.planes, d->outbuf.strides, roi);
+	ms_message("[msimx6vpu_h264_dec] mblk_t ready");
+	
+	ms_queue_put(f->outputs[0], dupmsg(yuv));
 
-static int msimx6vpu_h264_vpu_dec_start(IMX6VPUDATA *d) {
+	ms_message("[msimx6vpu_h264_dec] mblk_t created and queued");
+}
+
+static int msimx6vpu_h264_vpu_dec_start(MSFilter *f) {
 	RetCode ret;
 	DecParam decparams = {0};
 	DecOutputInfo outinfos = {0};
-	bool_t waited_for_int = FALSE;
-	int loop_count = 0;
+	MSIMX6VPUH264DecData *d;
+	IMX6VPUDATA *vpu;
 	
-	ret = vpu_DecStartOneFrame(d->handle, &decparams);
-	if (ret != RETCODE_SUCCESS) {
-		ms_error("[msimx6vpu_h264_dec] vpu_DecStartOneFrame error: %d", ret);
+	d = (MSIMX6VPUH264DecData *)f->data;
+	vpu = d->vpu;
+	
+	if (!vpu->dec_frame_started) {
+		ret = vpu_DecStartOneFrame(vpu->handle, &decparams);
+		if (ret != RETCODE_SUCCESS) {
+			ms_error("[msimx6vpu_h264_dec] vpu_DecStartOneFrame error: %d", ret);
+			return -1;
+		}
+		vpu->dec_frame_started = TRUE;
+	}
+	
+	if (vpu_IsBusy()) {
 		return -1;
 	}
 	
-	
-	while (vpu_IsBusy()) {
-		if (loop_count == 50) {
-			ms_warning("[msimx6vpu_h264_dec] Too much time, let's reset");
-			vpu_SWReset(d->handle, 0);
-			return -1;
-		}
-		
-		vpu_WaitForInt(100);
-		waited_for_int = TRUE;
-		loop_count ++;
-	}
-	
-	ret = vpu_DecGetOutputInfo(d->handle, &outinfos);
+	ret = vpu_DecGetOutputInfo(vpu->handle, &outinfos);
 	if (ret != RETCODE_SUCCESS) {
 		ms_error("[msimx6vpu_h264_dec] vpu_DecGetOutputInfo error: %d", ret);
 		return -1;
-	} else {
- 		ms_message("[msimx6vpu_h264_dec] index frame decoded = %d, index frame display = %d", outinfos.indexFrameDecoded, outinfos.indexFrameDisplay);
 	}
+	ms_message("[msimx6vpu_h264_dec] index frame decoded = %d, index frame display = %d", outinfos.indexFrameDecoded, outinfos.indexFrameDisplay);
 	
 	if (outinfos.decodingSuccess == 0) {
 		ms_warning("[msimx6vpu_h264_dec] incomplete finish of decoding");
-		return -1; // TODO? Something else ?
+		ms_filter_notify_no_arg(f, MS_VIDEO_DECODER_DECODING_ERRORS);
+		return -1;
 	}
 	if (outinfos.notSufficientPsBuffer) {
 		ms_error("[msimx6vpu_h264_dec] vpu_DecGetOutputInfo error: PS buffer overflow");
+		ms_filter_notify_no_arg(f, MS_VIDEO_DECODER_DECODING_ERRORS);
 		return -1;
 	}
 	if (outinfos.notSufficientSliceBuffer) {
 		ms_error("[msimx6vpu_h264_dec] vpu_DecGetOutputInfo error: Slice buffer overflow");
+		ms_filter_notify_no_arg(f, MS_VIDEO_DECODER_DECODING_ERRORS);
 		return -1;
 	}
 	
 	if (outinfos.indexFrameDecoded >= 0) {
-		ms_message("[msimx6vpu_h264_dec] good enough for now");
+		if (outinfos.decPicWidth != vpu->picwidth || outinfos.decPicHeight != vpu->picheight) {
+			ms_warning("[msimx6vpu_h264_dec] size of the image has changed from %ix%i to %ix%i", 
+				   vpu->picwidth, vpu->picheight, outinfos.decPicWidth, outinfos.decPicHeight);
+		}
+		vpu->picwidth = outinfos.decPicWidth;
+		vpu->picheight = outinfos.decPicHeight;
+		ms_message("[msimx6vpu_h264_dec] frame size is %ix%i", vpu->picwidth, vpu->picheight);
+		
+		msimx6vpu_h264_frame_to_mblkt(f, outinfos.indexFrameDecoded);
+		
+		if (!d->first_image_decoded) {
+			d->first_image_decoded = TRUE;
+			ms_filter_notify_no_arg(f, MS_VIDEO_DECODER_FIRST_IMAGE_DECODED);
+			ms_message("[msimx6vpu_h264_dec] filter notified of first image decoded");
+		}
 	
-		ret = vpu_DecClrDispFlag(d->handle, outinfos.indexFrameDecoded);
+		ret = vpu_DecClrDispFlag(vpu->handle, outinfos.indexFrameDecoded);
 		if (ret != RETCODE_SUCCESS) {
 			ms_warning("[msimx6vpu_h264_dec] Failed to clear frame buffer %d", outinfos.indexFrameDecoded);
 		}
+		vpu->dec_frame_started = FALSE;
 	}
 	
 	return 0;
@@ -418,7 +499,7 @@ static int msimx6vpu_h264_vpu_dec_start(IMX6VPUDATA *d) {
 
 static int msimx6vpu_h264_vpu_dec_close(IMX6VPUDATA *d) {
 	RetCode ret;
-
+	
 	ret = vpu_DecClose(d->handle);
 	if (ret == RETCODE_FRAME_NOT_COMPLETE) {
 		vpu_SWReset(d->handle, 0);
@@ -428,8 +509,7 @@ static int msimx6vpu_h264_vpu_dec_close(IMX6VPUDATA *d) {
 			return -1;
 		}
 	}
-	ms_free(d->fb);
-	ms_message("[msimx6vpu_h264_dec] vpu_dec_close OK");
+	ms_free(d->fbpool);
 	
 	return 0;
 }
@@ -547,13 +627,12 @@ static int nalusToFrame(MSIMX6VPUH264DecData *d, MSQueue *naluq, bool_t *new_sps
 static void msimx6vpu_h264_dec_init(MSFilter *f) {
 	MSIMX6VPUH264DecData *d = (MSIMX6VPUH264DecData *)ms_new(MSIMX6VPUH264DecData, 1);
 	IMX6VPUDATA *vpu = (IMX6VPUDATA *)ms_new(IMX6VPUDATA, 1);
+	
 	d->configure_done = FALSE;
 	d->sps = NULL;
 	d->pps = NULL;
 	d->outbuf.w = 0;
 	d->outbuf.h = 0;
-	d->vsize.width = MS_VIDEO_SIZE_VGA_W;
-	d->vsize.height = MS_VIDEO_SIZE_VGA_H;
 	    
 	d->bitstream_size = 65536;
 	d->bitstream = ms_malloc0(d->bitstream_size);
@@ -565,16 +644,13 @@ static void msimx6vpu_h264_dec_init(MSFilter *f) {
 	
 	rfc3984_init(&d->unpacker);
 	d->packet_num = 0;
-	d->last_decoded_frame = 0;
-	d->last_error_reported_time = 0;
 	f->data = d;
-	ms_message("[msimx6vpu_h264_dec] dec_init OK");
 }
 
 static void msimx6vpu_h264_dec_preprocess(MSFilter *f) {
 	MSIMX6VPUH264DecData *d = (MSIMX6VPUH264DecData*)f->data;
+	
 	d->first_image_decoded = FALSE;
-	ms_message("[msimx6vpu_h264_dec] dec_preprocess OK");
 }
 
 static void msimx6vpu_h264_dec_process(MSFilter *f) {
@@ -582,7 +658,6 @@ static void msimx6vpu_h264_dec_process(MSFilter *f) {
 	mblk_t *im;
 	MSQueue nalus;
 	
-	ms_message("[msimx6vpu_h264_dec] dec_process started");
 	ms_queue_init(&nalus);
 	while ((im = ms_queue_get(f->inputs[0])) != NULL) {
 		/*push the sps/pps given in sprop-parameter-sets if any*/
@@ -612,11 +687,12 @@ static void msimx6vpu_h264_dec_process(MSFilter *f) {
 					d->configure_done = TRUE;
 				}
 			}
-			
 		}
+		d->packet_num++;
 	}
-	msimx6vpu_h264_vpu_dec_start(d->vpu);
-	ms_message("[msimx6vpu_h264_dec] dec_process OK");
+	if (d->configure_done) {
+		msimx6vpu_h264_vpu_dec_start(f);
+	}
 }
 
 /*
@@ -628,15 +704,14 @@ static void msimx6vpu_h264_dec_postprocess(MSFilter *f) {
 
 static void msimx6vpu_h264_dec_uninit(MSFilter *f) {
 	MSIMX6VPUH264DecData *d = (MSIMX6VPUH264DecData *)f->data;
+	
 	msimx6vpu_h264_vpu_dec_close(d->vpu);
 	rfc3984_uninit(&d->unpacker);
-	//if (d->yuv_msg) freemsg(d->yuv_msg);
 	if (d->sps) freemsg(d->sps);
 	if (d->pps) freemsg(d->pps);
 	ms_free(d->bitstream);
 	ms_free(d->vpu);
 	ms_free(d);
-	ms_message("[msimx6vpu_h264_dec] dec_uninit OK");
 }
 
 /******************************************************************************
@@ -645,13 +720,31 @@ static void msimx6vpu_h264_dec_uninit(MSFilter *f) {
 
 static int msimx6vpu_h264_reset_first_image(MSFilter *f, void *data) {
 	MSIMX6VPUH264DecData *d = (MSIMX6VPUH264DecData *)f->data;
+	
 	d->first_image_decoded = FALSE;
 	ms_message("[msimx6vpu_h264_dec] first image resetted");
+	
+	return 0;
+}
+
+static int msimx6vpu_h264_get_vsize(MSFilter *f, void *data) {
+	MSIMX6VPUH264DecData *d = (MSIMX6VPUH264DecData *)f->data;
+	MSVideoSize *vsize = (MSVideoSize *)data;
+	
+	if (d->first_image_decoded == TRUE) {
+		vsize->width = d->vpu->picwidth;
+		vsize->height = d->vpu->picheight;
+	} else {
+		vsize->width = MS_VIDEO_SIZE_UNKNOWN_W;
+		vsize->height = MS_VIDEO_SIZE_UNKNOWN_H;
+	}
+	
 	return 0;
 }
 
 static MSFilterMethod msimx6vpu_h264_dec_methods[] = {
 	{	MS_VIDEO_DECODER_RESET_FIRST_IMAGE_NOTIFICATION,	msimx6vpu_h264_reset_first_image	},
+	{	MS_FILTER_GET_VIDEO_SIZE,				msimx6vpu_h264_get_vsize		},
 	{	0,							NULL					}
 };
 
@@ -673,7 +766,7 @@ MSFilterDesc msimx6vpu_h264_dec_desc = {
 	.postprocess = NULL,//msimx6vpu_h264_dec_postprocess,
 	.uninit = msimx6vpu_h264_dec_uninit,
 	.methods = msimx6vpu_h264_dec_methods,
-	.flags = 0
+	.flags = MS_FILTER_IS_PUMP
 };
 
 /******************************************************************************
