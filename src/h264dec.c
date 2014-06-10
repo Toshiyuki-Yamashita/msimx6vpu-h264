@@ -33,7 +33,7 @@ typedef struct imx6vpu_framebuffer {
 	int strideC;
 } IMX6VPUFrameBuffer;
 
-typedef struct imx6vpu_data {
+typedef struct imx6vpu_dec_data {
 	DecHandle handle;
 	unsigned long virt_buf_addr;
 	PhysicalAddress phy_buf_addr;
@@ -53,10 +53,10 @@ typedef struct imx6vpu_data {
 	FrameBuffer *fbs;
 	IMX6VPUFrameBuffer **fbpool;
 	bool_t dec_frame_started;
-} IMX6VPUDATA;
+} IMX6VPUDecData;
 
 typedef struct _MSIMX6VPUH264DecData {
-	IMX6VPUDATA *vpu;
+	IMX6VPUDecData *vpu;
 	Rfc3984Context unpacker;
 	mblk_t *sps;
 	mblk_t *pps;
@@ -76,7 +76,7 @@ typedef struct _MSIMX6VPUH264DecData {
  * VPU low level access functions                                            *
  *****************************************************************************/
 
-static int msimx6vpu_h264_vpu_dec_open(IMX6VPUDATA *d) {
+static int msimx6vpu_h264_vpu_dec_open(IMX6VPUDecData *d) {
 	RetCode ret;
 	vpu_versioninfo version;
 	DecHandle handle = {0};
@@ -153,7 +153,7 @@ static int msimx6vpu_h264_read(void *src, void *dest, size_t n) {
 	return n;
 }
 
-static int msimx6vpu_h264_vpu_fill_buffer(IMX6VPUDATA *d, void *bitstream, int available) {
+static int msimx6vpu_h264_vpu_fill_buffer(IMX6VPUDecData *d, void *bitstream, int available) {
 	RetCode ret;
 	unsigned long space, target_addr;
 	PhysicalAddress pa_read_ptr, pa_write_ptr;
@@ -250,7 +250,7 @@ update:
 	return 0;
 }
 
-static int msimx6vpu_h264_vpu_alloc_fb(IMX6VPUDATA *d) {
+static int msimx6vpu_h264_vpu_alloc_fb(IMX6VPUDecData *d) {
 	DecBufInfo bufinfo;
 	RetCode ret;
 	int i, err;
@@ -312,7 +312,7 @@ static int msimx6vpu_h264_vpu_alloc_fb(IMX6VPUDATA *d) {
 	return 0;
 }
 
-static int msimx6vpu_h264_vpu_dec_init(IMX6VPUDATA *d) {
+static int msimx6vpu_h264_vpu_dec_init(IMX6VPUDecData *d) {
 	RetCode ret;
 	DecInitialInfo initinfo = {0};
 	
@@ -386,7 +386,7 @@ static int msimx6vpu_h264_vpu_dec_init(IMX6VPUDATA *d) {
 
 static void msimx6vpu_h264_frame_to_mblkt(MSFilter *f, int index) {
 	MSIMX6VPUH264DecData *d;
-	IMX6VPUDATA *vpu;
+	IMX6VPUDecData *vpu;
 	IMX6VPUFrameBuffer *framebuff;
 	MSVideoSize roi = {0};
 	uint8_t *src_planes[4];
@@ -426,7 +426,7 @@ static int msimx6vpu_h264_vpu_dec_start(MSFilter *f) {
 	DecParam decparams = {0};
 	DecOutputInfo outinfos = {0};
 	MSIMX6VPUH264DecData *d;
-	IMX6VPUDATA *vpu;
+	IMX6VPUDecData *vpu;
 	int i;
 	
 	d = (MSIMX6VPUH264DecData *)f->data;
@@ -507,7 +507,7 @@ static int msimx6vpu_h264_vpu_dec_start(MSFilter *f) {
 }
 
 
-static void msimx6vpu_h264_vpu_dec_close(IMX6VPUDATA *d) {
+static void msimx6vpu_h264_vpu_dec_close(IMX6VPUDecData *d) {
 	RetCode ret;
 	int i;
 	
@@ -645,7 +645,7 @@ static int nalusToFrame(MSIMX6VPUH264DecData *d, MSQueue *naluq, bool_t *new_sps
 
 static void msimx6vpu_h264_dec_init(MSFilter *f) {
 	MSIMX6VPUH264DecData *d = (MSIMX6VPUH264DecData *)ms_new(MSIMX6VPUH264DecData, 1);
-	IMX6VPUDATA *vpu = (IMX6VPUDATA *)ms_new(IMX6VPUDATA, 1);
+	IMX6VPUDecData *vpu = (IMX6VPUDecData *)ms_new(IMX6VPUDecData, 1);
 	
 	d->configure_done = FALSE;
 	d->sps = NULL;
