@@ -124,6 +124,7 @@ static int msimx6vpu_h264_vpu_dec_open(IMX6VPUDecData *d) {
 	oparam.psSaveBuffer = d->ps_mem.phy_addr;
 	oparam.psSaveBufferSize = PS_SAVE_SIZE;
 	oparam.jpgLineBufferMode = 1;
+	oparam.chromaInterleave = 0;
 	
 	ret = vpu_DecOpen(&handle, &oparam);
 	if (ret != RETCODE_SUCCESS) {
@@ -195,7 +196,9 @@ static int msimx6vpu_h264_vpu_fill_buffer(IMX6VPUDecData *d, void *bitstream, in
 			eof = TRUE;
 		} else {
 			if (nread != available || remaining == 0) {
-				ms_warning("[msimx6vpu_h264_dec] vpu_fill_buffer: unable to fill the requested size");
+				if (nread != available) {
+					ms_warning("[msimx6vpu_h264_dec] vpu_fill_buffer: unable to fill the requested size");
+				}
 				goto update;
 			}
 			
@@ -268,7 +271,7 @@ static int msimx6vpu_h264_vpu_alloc_fb(IMX6VPUDecData *d) {
 	}
 		
 	for (i = 0; i < d->regfbcount; i++) {
-		d->fbpool[i] = (IMX6VPUFrameBuffer*) ms_malloc0(d->regfbcount * sizeof(IMX6VPUFrameBuffer));
+		d->fbpool[i] = (IMX6VPUFrameBuffer*) ms_malloc0(sizeof(IMX6VPUFrameBuffer));
 		
 		memset(&(d->fbpool[i]->desc), 0, sizeof(vpu_mem_desc));
 		d->fbpool[i]->desc.size = 3 * d->stride * d->picheight / 2;
@@ -417,8 +420,6 @@ static void msimx6vpu_h264_frame_to_mblkt(MSFilter *f, int index) {
 	
 	ms_yuv_buf_copy(src_planes, src_strides, d->outbuf.planes, d->outbuf.strides, roi);
 	ms_queue_put(f->outputs[0], dupmsg(d->yuv_msg));
-
-	ms_message("[msimx6vpu_h264_dec] mblk_t created and queued");
 }
 
 static int msimx6vpu_h264_vpu_dec_start(MSFilter *f) {
@@ -450,7 +451,6 @@ static int msimx6vpu_h264_vpu_dec_start(MSFilter *f) {
 		ms_error("[msimx6vpu_h264_dec] vpu_DecGetOutputInfo error: %d", ret);
 		return -1;
 	}
-	ms_message("[msimx6vpu_h264_dec] index frame decoded = %d, index frame display = %d", outinfos.indexFrameDecoded, outinfos.indexFrameDisplay);
 	
 	if (outinfos.decodingSuccess == 0) {
 		ms_warning("[msimx6vpu_h264_dec] incomplete finish of decoding");
@@ -478,7 +478,6 @@ static int msimx6vpu_h264_vpu_dec_start(MSFilter *f) {
 		}
 		vpu->picwidth = outinfos.decPicWidth;
 		vpu->picheight = outinfos.decPicHeight;
-		ms_message("[msimx6vpu_h264_dec] frame size is %ix%i", vpu->picwidth, vpu->picheight);
 		
 		msimx6vpu_h264_frame_to_mblkt(f, outinfos.indexFrameDecoded);
 		
@@ -704,7 +703,6 @@ static void msimx6vpu_h264_dec_process(MSFilter *f) {
 				ms_message("[msimx6vpu_h264_dec] reinit done");
 			}
 			
-			ms_message("[msimx6vpu_h264_dec] size read: %i", size);
 			if (msimx6vpu_h264_vpu_fill_buffer(d->vpu, d->bitstream, size) < 0) {
 				ms_error("[msimx6vpu_h264_dec] failed to fill the vpu's bitstream buffer");
 			}
