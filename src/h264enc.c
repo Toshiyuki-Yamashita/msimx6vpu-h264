@@ -25,6 +25,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include <vpu_lib.h>
 #include <vpu_io.h>
+#include "vpu.h"
 
 #define MS_H264_CONF(required_bitrate, bitrate_limit, resolution, fps) \
 	{ required_bitrate, bitrate_limit, { MS_VIDEO_SIZE_ ## resolution ## _W, MS_VIDEO_SIZE_ ## resolution ## _H }, fps, NULL }
@@ -108,13 +109,6 @@ static bool_t video_starter_need_i_frame(VideoStarter *vs, uint64_t curtime) {
  * Encoder structures                                                        *
  *****************************************************************************/
 
-typedef struct imx6vpu_framebuffer {
-	vpu_mem_desc desc;
-	FrameBuffer *fb;
-	int strideY;
-	int strideC;
-} IMX6VPUFrameBuffer;
-
 typedef struct _MSIMX6VPUH264EncData {
 	DecHandle handle;
 	vpu_mem_desc bitstream_mem;
@@ -126,7 +120,7 @@ typedef struct _MSIMX6VPUH264EncData {
 	FrameBuffer *fbs;
 	IMX6VPUFrameBuffer **fbpool;
 	bool_t enc_frame_started;
-	bool_t frame_ready_to_be_encoded;
+	bool_t frame_ready_for_encoder;
 	Rfc3984Context *packer;
 	MSVideoConfiguration vconf;
 	const MSVideoConfiguration *vconf_list;
@@ -146,26 +140,11 @@ typedef struct _MSIMX6VPUH264EncData {
 
 static int msimx6vpu_h264_vpu_enc_open(MSIMX6VPUH264EncData *d) {
 	RetCode ret;
-	vpu_versioninfo version;
-	DecHandle handle = {0};
+	EncHandle handle = {0};
 	EncOpenParam oparam = {0};
 	EncSliceMode slicemode = {0};
 	
-	ret = vpu_Init(NULL);
-	if (ret) {
-		ms_error("[msimx6vpu_h264_enc] vpu_Init error: %d", ret);
-		return -1;
-	}
-
-	ret = vpu_GetVersionInfo(&version);
-	if (ret) {
-		ms_error("[msimx6vpu_h264_enc] vpu_GetVersionInfo error: %d", ret);
-		vpu_UnInit();
-		return -1;
-	}
-
-	ms_message("[msimx6vpu_h264_enc] VPU firmware version: %d.%d.%d_r%d", version.fw_major, version.fw_minor, version.fw_release, version.fw_code);
-	ms_message("[msimx6vpu_h264_enc] VPU library version: %d.%d.%d", version.lib_major, version.lib_minor, version.lib_release);
+	msimx6vpu_init();
 	
 	d->bitstream_mem.size = STREAM_BUF_SIZE;
 	ret = IOGetPhyMem(&d->bitstream_mem);
@@ -207,7 +186,6 @@ static int msimx6vpu_h264_vpu_enc_open(MSIMX6VPUH264EncData *d) {
 err:
 	IOFreeVirtMem(&d->bitstream_mem);
 	IOFreePhyMem(&d->bitstream_mem);
-	vpu_UnInit();
 	return -1;
 }
 
@@ -365,8 +343,6 @@ static int msimx6vpu_h264_vpu_read_ring_buffer(MSIMX6VPUH264EncData *d, int defa
 		space = size;
 	}
 	
-	ms_message("[msimx6vpu_h264_enc] space is %i", space);
-	
 	if (space > 0) {
 		/*
 		target_addr = d->bitstream_mem.virt_uaddr + (pa_write_ptr - d->bitstream_mem.phy_addr);
@@ -408,20 +384,20 @@ static int msimx6vpu_h264_vpu_enc_start(MSFilter *f, MSQueue *nalus) {
 	RetCode ret;
 	EncParam params = {0};
 	EncOutputInfo outinfo = {0};
-	int loop = 0;
 	
-	params.sourceFrame = &d->fbs[d->src_buffer_index];
-	if (d->generate_keyframe) {
-		params.forceIPicture = 1;
-		d->generate_keyframe = FALSE;
-	}
-	params.enableAutoSkip = 0;
+	if (!d->enc_frame_started && !msimx6vpu_isBusy()) {
+		msimx6vpu_lockVPU();
+		params.sourceFrame = &d->fbs[d->src_buffer_index];
+		if (d->generate_keyframe) {
+			params.forceIPicture = 1;
+			d->generate_keyframe = FALSE;
+		}
+		params.enableAutoSkip = 0;
 	
-	/*
-	if (!d->enc_frame_started) {
 		ret = vpu_EncStartOneFrame(d->handle, &params);
 		if (ret != RETCODE_SUCCESS) {
-			ms_error("[msimx6vpu_h264_enc] vpu_vpu_EncStartOneFrame failed with error: %d", ret);
+			ms_error("[msimx6vpu_h264_enc] vpu_EncStartOneFrame failed with error: %d", ret);
+			msimx6vpu_unlockVPU();
 			return -1;
 		}
 		d->enc_frame_started = TRUE;
@@ -432,12 +408,18 @@ static int msimx6vpu_h264_vpu_enc_start(MSFilter *f, MSQueue *nalus) {
 		return -1;
 	}
 	
+	if (!d->enc_frame_started) {
+		return -1;
+	}
+	
 	ret = vpu_EncGetOutputInfo(d->handle, &outinfo);
 	if (ret != RETCODE_SUCCESS) {
 		ms_error("[msimx6vpu_h264_enc] vpu_EncGetOutputInfo error: %d", ret);
+		msimx6vpu_unlockVPU();
+		return -1;
 	}
-	
 	d->enc_frame_started = FALSE;
+	msimx6vpu_unlockVPU();
 	
 	if (outinfo.skipEncoded) {
 		ms_warning("[msimx6vpu_h264_enc] skip encoding one frame");
@@ -445,21 +427,11 @@ static int msimx6vpu_h264_vpu_enc_start(MSFilter *f, MSQueue *nalus) {
 	}
 	
 	return msimx6vpu_h264_vpu_read_ring_buffer(d, 0, nalus);
-	*/
-	
-	return 0;
 }
 
 static void msimx6vpu_h264_vpu_enc_close(MSIMX6VPUH264EncData *d) {
 	RetCode ret;
 	int i;
-	
-	IOFreeVirtMem(&d->bitstream_mem);
-	IOFreePhyMem(&d->bitstream_mem);
-	for (i = 0; i < d->regfbcount; i++) {
-		IOFreeVirtMem(&d->fbpool[i]->desc);
-		IOFreePhyMem(&d->fbpool[i]->desc);
-	}
 	
 	ret = vpu_EncClose(d->handle);
 	if (ret == RETCODE_FRAME_NOT_COMPLETE) {
@@ -469,8 +441,15 @@ static void msimx6vpu_h264_vpu_enc_close(MSIMX6VPUH264EncData *d) {
 			ms_error("[msimx6vpu_h264_enc] vpu_EncClose error: %d", ret);
 		}
 	}
-		
-	vpu_UnInit();
+	
+	IOFreeVirtMem(&d->bitstream_mem);
+	IOFreePhyMem(&d->bitstream_mem);
+	for (i = 0; i < d->regfbcount; i++) {
+		IOFreeVirtMem(&d->fbpool[i]->desc);
+		IOFreePhyMem(&d->fbpool[i]->desc);
+	}
+
+	msimx6vpu_close();
 	ms_free(d->fbpool);
 	ms_free(d->fbs);
 }
@@ -495,7 +474,7 @@ static void msimx6vpu_h264_enc_init(MSFilter *f) {
 	d->packer = NULL;
 	d->src_buffer_index = -1;
 	d->enc_frame_started = FALSE;
-	d->frame_ready_to_be_encoded = FALSE;
+	d->frame_ready_for_encoder = FALSE;
 	f->data = d;
 }
 
@@ -525,8 +504,6 @@ static void msimx6vpu_h264_vpu_fill_buffer(MSIMX6VPUH264EncData *d, MSPicture pi
 	memcpy(y_addr, pic.planes[0], framebuff->strideY);
 	memcpy(u_addr, pic.planes[1], framebuff->strideC);
 	memcpy(v_addr, pic.planes[2], framebuff->strideC);
-	
-	ms_message("[msimx6vpu_h264_enc] src buffer filled with pic");
 }
 
 static void msimx6vpu_h264_enc_process(MSFilter *f) {
@@ -560,22 +537,26 @@ static void msimx6vpu_h264_enc_process(MSFilter *f) {
 				}
 			}
 			
-			msimx6vpu_h264_vpu_fill_buffer(d, pic);
-	
-			if (d->configure_done) {
-				if (msimx6vpu_h264_vpu_enc_start(f, &nalus) >= 0) {
-					if (!ms_queue_empty(&nalus)) {
-						rfc3984_pack(d->packer, &nalus, f->outputs[0], ts);
-						if (d->packet_num == 0) {
-							ms_message("[msimx6vpu_h264_enc] first frame encoded");
-							video_starter_first_frame(&d->starter, f->ticker->time);
-						}
-						d->packet_num++;
-					}
-				}
+			if (!d->enc_frame_started && !d->frame_ready_for_encoder) {
+				d->frame_ready_for_encoder = TRUE;
+				msimx6vpu_h264_vpu_fill_buffer(d, pic);
 			}
 		}
 		freemsg(im);
+	}
+	
+	if (d->configure_done && d->frame_ready_for_encoder) {
+		if (msimx6vpu_h264_vpu_enc_start(f, &nalus) >= 0) {
+			d->frame_ready_for_encoder = FALSE;
+			if (!ms_queue_empty(&nalus)) {
+				rfc3984_pack(d->packer, &nalus, f->outputs[0], ts);
+				if (d->packet_num == 0) {
+					ms_message("[msimx6vpu_h264_enc] first frame encoded");
+					video_starter_first_frame(&d->starter, f->ticker->time);
+				}
+				d->packet_num++;
+			}
+		}
 	}
 }
 
@@ -717,7 +698,7 @@ MSFilterDesc msimx6vpu_h264_enc_desc = {
 	.postprocess = msimx6vpu_h264_enc_postprocess,
 	.uninit = msimx6vpu_h264_enc_uninit,
 	.methods = msimx6vpu_h264_enc_methods,
-	.flags = 0
+	.flags = MS_FILTER_IS_PUMP
 };
 
 /******************************************************************************

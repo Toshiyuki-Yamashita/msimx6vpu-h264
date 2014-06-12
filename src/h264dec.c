@@ -25,13 +25,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include <vpu_lib.h>
 #include <vpu_io.h>
-
-typedef struct imx6vpu_framebuffer {
-	vpu_mem_desc desc;
-	FrameBuffer *fb;
-	int strideY;
-	int strideC;
-} IMX6VPUFrameBuffer;
+#include "vpu.h"
 
 typedef struct imx6vpu_dec_data {
 	DecHandle handle;
@@ -78,25 +72,10 @@ typedef struct _MSIMX6VPUH264DecData {
 
 static int msimx6vpu_h264_vpu_dec_open(IMX6VPUDecData *d) {
 	RetCode ret;
-	vpu_versioninfo version;
 	DecHandle handle = {0};
 	DecOpenParam oparam = {0};
 	
-	ret = vpu_Init(NULL);
-	if (ret) {
-		ms_error("[msimx6vpu_h264_dec] vpu_Init error: %d", ret);
-		return -1;
-	}
-
-	ret = vpu_GetVersionInfo(&version);
-	if (ret) {
-		ms_error("[msimx6vpu_h264_dec] vpu_GetVersionInfo error: %d", ret);
-		vpu_UnInit();
-		return -1;
-	}
-
-	ms_message("[msimx6vpu_h264_dec] VPU firmware version: %d.%d.%d_r%d", version.fw_major, version.fw_minor, version.fw_release, version.fw_code);
-	ms_message("[msimx6vpu_h264_dec] VPU library version: %d.%d.%d", version.lib_major, version.lib_minor, version.lib_release);
+	msimx6vpu_init();
 	
 	d->bitstream_mem.size = STREAM_BUF_SIZE;
 	ret = IOGetPhyMem(&d->bitstream_mem);
@@ -144,7 +123,6 @@ err:
 	IOFreePhyMem(&d->ps_mem);
 	IOFreeVirtMem(&d->bitstream_mem);
 	IOFreePhyMem(&d->bitstream_mem);
-	vpu_UnInit();
 	return -1;
 }
 
@@ -433,10 +411,12 @@ static int msimx6vpu_h264_vpu_dec_start(MSFilter *f) {
 	d = (MSIMX6VPUH264DecData *)f->data;
 	vpu = d->vpu;
 	
-	if (!vpu->dec_frame_started) {
+	if (!vpu->dec_frame_started && !msimx6vpu_isBusy()) {
+		msimx6vpu_lockVPU();
 		ret = vpu_DecStartOneFrame(vpu->handle, &decparams);
 		if (ret != RETCODE_SUCCESS) {
 			ms_error("[msimx6vpu_h264_dec] vpu_DecStartOneFrame error: %d", ret);
+			msimx6vpu_unlockVPU();
 			return -1;
 		}
 		vpu->dec_frame_started = TRUE;
@@ -446,11 +426,17 @@ static int msimx6vpu_h264_vpu_dec_start(MSFilter *f) {
 		return -1;
 	}
 	
+	if (!vpu->dec_frame_started) {
+		return -1;
+	}
+	
 	ret = vpu_DecGetOutputInfo(vpu->handle, &outinfos);
 	if (ret != RETCODE_SUCCESS) {
 		ms_error("[msimx6vpu_h264_dec] vpu_DecGetOutputInfo error: %d", ret);
+		msimx6vpu_unlockVPU();
 		return -1;
 	}
+	msimx6vpu_unlockVPU();
 	
 	if (outinfos.decodingSuccess == 0) {
 		ms_warning("[msimx6vpu_h264_dec] incomplete finish of decoding");
@@ -510,6 +496,15 @@ static void msimx6vpu_h264_vpu_dec_close(IMX6VPUDecData *d) {
 	RetCode ret;
 	int i;
 	
+	ret = vpu_DecClose(d->handle);
+	if (ret == RETCODE_FRAME_NOT_COMPLETE) {
+		vpu_SWReset(d->handle, 0);
+		ret = vpu_DecClose(d->handle);
+		if (ret != RETCODE_SUCCESS) {
+			ms_error("[msimx6vpu_h264_dec] vpu_DecClose error: %d", ret);
+		}
+	}
+	
 	IOFreePhyMem(&d->ps_mem);
 	IOFreeVirtMem(&d->bitstream_mem);
 	IOFreePhyMem(&d->bitstream_mem);
@@ -519,15 +514,7 @@ static void msimx6vpu_h264_vpu_dec_close(IMX6VPUDecData *d) {
 		IOFreePhyMem(&d->fbpool[i]->desc);
 	}
 	
-	ret = vpu_DecClose(d->handle);
-	if (ret == RETCODE_FRAME_NOT_COMPLETE) {
-		vpu_SWReset(d->handle, 0);
-		ret = vpu_DecClose(d->handle);
-		if (ret != RETCODE_SUCCESS) {
-			ms_error("[msimx6vpu_h264_dec] vpu_DecClose error: %d", ret);
-		}
-	}
-	vpu_UnInit();
+	msimx6vpu_close();
 	ms_free(d->fbpool);
 	ms_free(d->fbs);
 }
@@ -645,7 +632,7 @@ static int nalusToFrame(MSIMX6VPUH264DecData *d, MSQueue *naluq, bool_t *new_sps
 static void msimx6vpu_h264_dec_init(MSFilter *f) {
 	MSIMX6VPUH264DecData *d = (MSIMX6VPUH264DecData *)ms_new(MSIMX6VPUH264DecData, 1);
 	IMX6VPUDecData *vpu = (IMX6VPUDecData *)ms_new(IMX6VPUDecData, 1);
-	
+
 	d->configure_done = FALSE;
 	d->sps = NULL;
 	d->pps = NULL;
