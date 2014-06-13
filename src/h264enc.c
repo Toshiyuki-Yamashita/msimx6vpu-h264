@@ -32,7 +32,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 static const MSVideoConfiguration h264_conf_list[] = {
 #if defined(ANDROID) || (TARGET_OS_IPHONE == 1) || defined(__arm__)
-	MS_H264_CONF( 170000, 512000,  QVGA, 12),
+	MS_H264_CONF( 170000,  512000, VGA, 12),
 	MS_H264_CONF( 128000,  170000, QCIF, 10),
 	MS_H264_CONF(  64000,  128000, QCIF,  7),
 	MS_H264_CONF(      0,   64000, QCIF,  5)
@@ -112,6 +112,10 @@ static bool_t video_starter_need_i_frame(VideoStarter *vs, uint64_t curtime) {
 typedef struct _MSIMX6VPUH264EncData {
 	DecHandle handle;
 	vpu_mem_desc bitstream_mem;
+	vpu_mem_desc sps;
+	int sps_size;
+	vpu_mem_desc pps;
+	int pps_size;
 	int src_width;
 	int src_height;
 	int src_buffer_index;
@@ -133,6 +137,8 @@ typedef struct _MSIMX6VPUH264EncData {
 #define STREAM_BUF_SIZE		0x200000
 #define STREAM_READ_SIZE	512 * 8
 #define KBPS				1000
+#define SPS_BUFFER_SIZE		512
+#define PPS_BUFFER_SIZE		512
 
 /******************************************************************************
  * VPU low level access functions                                            *
@@ -286,33 +292,154 @@ static int msimx6vpu_h264_vpu_alloc_fb(MSIMX6VPUH264EncData *d) {
 
 static int msimx6vpu_h264_vpu_enc_init(MSIMX6VPUH264EncData *d) {
 	RetCode ret;
+	int err;
 	EncInitialInfo initinfo = {0};
 	EncHeaderParam header = {0};
 	
+	if (msimx6vpu_isBusy()) {
+		return -1;
+	}
+	
+	msimx6vpu_lockVPU();
 	ret = vpu_EncGetInitialInfo(d->handle, &initinfo);
 	if (ret != RETCODE_SUCCESS) {
 		ms_error("[msimx6vpu_h264_enc] vpu_EncGetInitialInfo error: %d", ret);
+		msimx6vpu_unlockVPU();
 		return -2;
 	}
-	
+
 	d->minfbcount = initinfo.minFrameBufferCount;
 	d->regfbcount = d->minfbcount + 2 + 1; // 1 is for the src buffer
 	d->src_buffer_index = d->regfbcount - 1;
 	
 	msimx6vpu_h264_vpu_alloc_fb(d);
 	
+	memset(&d->sps, 0, sizeof(vpu_mem_desc));
+	d->sps.size = SPS_BUFFER_SIZE;
+	err = IOGetPhyMem(&d->sps->desc);
+	if (err) {
+		ms_error("[msimx6vpu_h264_enc] error getting phymem for sps buffer");
+	}
 	header.headerType = SPS_RBSP;
+	header.size = d->sps.size;
+	header.buf = d->sps.phy_addr;
 	vpu_EncGiveCommand(d->handle, ENC_PUT_AVC_HEADER, &header);
+	d->sps_size = header.size;
+	ms_message("[msimx6vpu_h264_enc] sps buffer allocated with size %i, real size %i", d->sps.size, d->sps_size);
 	
+	memset(&d->pps, 0, sizeof(vpu_mem_desc));
+	d->pps.size = PPS_BUFFER_SIZE;
+	err = IOGetPhyMem(&d->pps->desc);
+	if (err) {
+		ms_error("[msimx6vpu_h264_enc] error getting phymem for pps buffer");
+	}
 	memset(&header, 0, sizeof(EncHeaderParam));
 	header.headerType = PPS_RBSP;
+	header.size = d->pps.size;
+	header.buf = d->pps.phy_addr;
 	vpu_EncGiveCommand(d->handle, ENC_PUT_AVC_HEADER, &header);
+	d->pps_size = header.size;
+	ms_message("[msimx6vpu_h264_enc] pps buffer allocated with size %i, real size %i", d->pps.size, d->pps_size);
 	
+	msimx6vpu_unlockVPU();
 	return 0;
 }
 
-static int frameToNalus() {
-	//TODO
+static void create_and_queue_nal(MSQueue *nalus, uint8_t *start, int size, uint8_t *start2, int size2) {
+	mblk_t *m;
+	
+	m = allocb(size, 0);
+	memcpy(m->b_wptr, start, size);
+	m->b_wptr += size;
+	if (start2 != NULL && size2 > 0) {
+		ms_warning("[msimx6vpu_h264_enc] nal on circular buffer limit detected");
+		memcpy(m->b_wptr, start2, size2);
+		m->b_wptr += size2;
+	}
+	if (nalus) {
+		ms_queue_put(nalus, m);
+		//ms_message("[debug] nal enqueued, size %i", size);
+	}
+}
+
+static int frame_to_nalus(MSQueue *nalus, void *bitstream, int size, void *bitstream2, int size2) {
+	uint8_t *ptr = bitstream, *ptr2 = bitstream2, *bs_end = bitstream + size;
+	uint8_t *nal_start, *nal_start2 = NULL;
+	int nal_size, nal_size2;
+	bool_t loop_needed, has_looped;
+	
+	loop_needed = bitstream2 != NULL && size > 0;
+	has_looped = !loop_needed;
+	
+	if (ptr[0] == 0 && ptr[1] == 0 && ptr[2] == 0 && ptr[3] == 1) {
+		ptr += 4; // Skip NAL marker 0001
+		nal_start = ptr;
+		while (ptr < bs_end) {
+			if (ptr + 2 < bs_end) {
+				if (ptr[0] == 0 && ptr[1] == 0 && ptr[2] == 1) {
+					if (nal_start2) {
+						nal_size2 = ptr - nal_start2 - 1;
+						create_and_queue_nal(nalus, nal_start, nal_size, nal_start2, nal_size2);
+						nal_start2 = NULL;
+					} else {
+						nal_size = ptr - nal_start - 1;
+						create_and_queue_nal(nalus, nal_start, nal_size, NULL, 0);
+					}
+					ptr += 3; // Skip NAL marker 001
+					nal_start = ptr;
+				} else {
+					ptr += 1;
+				}
+			} else if (!has_looped) {
+				if (ptr + 1 < bs_end) {
+					if (ptr[0] == 0 && ptr[1] == 0 && ptr2[0] == 1) {
+						nal_size = ptr - nal_start - 1;
+						create_and_queue_nal(nalus, nal_start, nal_size, NULL, 0);
+						ptr = ptr2 + 1;
+						nal_start = ptr;
+						has_looped = TRUE;
+					} else {
+						ptr += 1;
+					}
+				} else if (ptr < bs_end) {
+					if (ptr[0] == 0 && ptr2[0] == 0 && ptr2[1] == 1) {
+						nal_size = ptr - nal_start - 1;
+						create_and_queue_nal(nalus, nal_start, nal_size, NULL, 0);
+						ptr = ptr2 + 2;
+						nal_start = ptr;
+						has_looped = TRUE;
+					} else {
+						nal_size = ptr - nal_start - 1;
+						ptr = ptr2;
+						nal_start2 = ptr;
+						bs_end = bitstream2 + size2;
+						has_looped = TRUE;
+					}
+				} else { // ptr == bs_end
+					nal_size = ptr - nal_start - 1;
+					ptr = ptr2;
+					nal_start2 = ptr;
+					bs_end = bitstream2 + size2;
+					has_looped = TRUE;
+				}
+			} else {
+				ptr += 1;
+			}
+		}
+		if (nal_start2) {
+			nal_size2 = ptr - nal_start2 - 1;
+			create_and_queue_nal(nalus, nal_start, nal_size, nal_start2, nal_size2);
+			nal_start2 = NULL;
+		} else {
+			nal_size = ptr - nal_start - 1;
+			create_and_queue_nal(nalus, nal_start, nal_size, NULL, 0);
+		}
+	} else {
+		ms_error("[msimx6vpu_h264_enc] encoder returned something not starting with a nal marker");
+		return -1;
+	}
+	
+	return 0;
 }
 
 static int msimx6vpu_h264_vpu_read_ring_buffer(MSIMX6VPUH264EncData *d, int default_size, MSQueue *nalus) {
@@ -344,30 +471,13 @@ static int msimx6vpu_h264_vpu_read_ring_buffer(MSIMX6VPUH264EncData *d, int defa
 	}
 	
 	if (space > 0) {
-		/*
-		target_addr = d->bitstream_mem.virt_uaddr + (pa_write_ptr - d->bitstream_mem.phy_addr);
-		frame = allocb(space, 0);
-		ms_message("[msimx6vpu_h264_enc] mblk_t allocated with %i bytes", space);
-		
+		target_addr = d->bitstream_mem.virt_uaddr + (pa_read_ptr - d->bitstream_mem.phy_addr);
 		if (target_addr + space > d->bitstream_mem.virt_uaddr + STREAM_BUF_SIZE) {
 			room = d->bitstream_mem.virt_uaddr + STREAM_BUF_SIZE - target_addr;
-			memcpy(frame->b_wptr, (void *)target_addr, room);
-			ms_message("[msimx6vpu_h264_enc] copied %i bytes into mblk_t", room);
-			frame->b_wptr += room;
-			
-			memcpy(frame->b_wptr, (void *)d->bitstream_mem.virt_uaddr, space - room);
-			ms_message("[msimx6vpu_h264_enc] copied %i bytes into mblk_t", space - room);
-			frame->b_wptr += space - room;
+			frame_to_nalus(nalus, (void *)target_addr, room, (void *)d->bitstream_mem.virt_uaddr, space - room);
 		} else {
-			memcpy(frame->b_wptr, (void *)target_addr, space);
-			ms_message("[msimx6vpu_h264_enc] copied %i bytes into mblk_t", space);
-			frame->b_wptr += space;
+			frame_to_nalus(nalus, (void *)target_addr, space, NULL, 0);
 		}
-		
-		if (nalus) {
-			ms_queue_put(nalus, frame);
-		}
-		*/
 		
 		ret = vpu_EncUpdateBitstreamBuffer(d->handle, space);
 		if (ret != RETCODE_SUCCESS) {
@@ -384,6 +494,7 @@ static int msimx6vpu_h264_vpu_enc_start(MSFilter *f, MSQueue *nalus) {
 	RetCode ret;
 	EncParam params = {0};
 	EncOutputInfo outinfo = {0};
+	int result;
 	
 	if (!d->enc_frame_started && !msimx6vpu_isBusy()) {
 		msimx6vpu_lockVPU();
@@ -403,12 +514,7 @@ static int msimx6vpu_h264_vpu_enc_start(MSFilter *f, MSQueue *nalus) {
 		d->enc_frame_started = TRUE;
 	}
 	
-	if (vpu_IsBusy()) {
-		//msimx6vpu_h264_vpu_read_ring_buffer(d, STREAM_READ_SIZE, NULL);
-		return -1;
-	}
-	
-	if (!d->enc_frame_started) {
+	if (vpu_IsBusy() || !d->enc_frame_started) {
 		return -1;
 	}
 	
@@ -431,7 +537,16 @@ static int msimx6vpu_h264_vpu_enc_start(MSFilter *f, MSQueue *nalus) {
 
 static void msimx6vpu_h264_vpu_enc_close(MSIMX6VPUH264EncData *d) {
 	RetCode ret;
+	EncOutputInfo outinfo = {0};
 	int i;
+	
+	if (d->enc_frame_started) {
+		ms_warning("[msimx6vpu_h264_enc] encoder running, let's finish the operation first");
+		vpu_SWReset(d->handle, 0);
+		//ret = vpu_EncGetOutputInfo(d->handle, &outinfo);
+		d->enc_frame_started = FALSE;
+		msimx6vpu_unlockVPU();
+	}
 	
 	ret = vpu_EncClose(d->handle);
 	if (ret == RETCODE_FRAME_NOT_COMPLETE) {
@@ -444,11 +559,13 @@ static void msimx6vpu_h264_vpu_enc_close(MSIMX6VPUH264EncData *d) {
 	
 	IOFreeVirtMem(&d->bitstream_mem);
 	IOFreePhyMem(&d->bitstream_mem);
+	IOFreePhyMem(&d->sps);
+	IOFreePhyMem(&d->pps);
 	for (i = 0; i < d->regfbcount; i++) {
 		IOFreeVirtMem(&d->fbpool[i]->desc);
 		IOFreePhyMem(&d->fbpool[i]->desc);
 	}
-
+	
 	msimx6vpu_close();
 	ms_free(d->fbpool);
 	ms_free(d->fbs);
@@ -533,11 +650,12 @@ static void msimx6vpu_h264_enc_process(MSFilter *f) {
 				if (msimx6vpu_h264_vpu_enc_init(d) < 0) {
 					ms_error("[msimx6vpu_h264_enc] failed to initialise the encoder");
 				} else {
+					ms_message("[msimx6vpu_h264_enc] encoder initialised");
 					d->configure_done = TRUE;
 				}
 			}
 			
-			if (!d->enc_frame_started && !d->frame_ready_for_encoder) {
+			if (d->configure_done && !d->enc_frame_started && !d->frame_ready_for_encoder) {
 				d->frame_ready_for_encoder = TRUE;
 				msimx6vpu_h264_vpu_fill_buffer(d, pic);
 			}
@@ -598,11 +716,16 @@ static int msimx6vpu_h264_enc_set_configuration(MSFilter *f, void *arg) {
 		ms_message("[msimx6vpu_h264_enc] reconfiguring encoder");
 		ms_filter_lock(f);
 		d->configure_done = FALSE;
+		
+		if (d->enc_frame_started) {
+			d->enc_frame_started = FALSE;
+			d->frame_ready_for_encoder = FALSE;
+		}
 		msimx6vpu_h264_vpu_enc_close(d);
 		msimx6vpu_h264_vpu_enc_open(d);
+		
 		ms_message("[msimx6vpu_h264_enc] encoder restart is done");
 		ms_filter_unlock(f);
-		return 0;
 	}
 
 	ms_message("[msimx6vpu_h264_enc] Video configuration set: bitrate=%dbits/s, fps=%f, vsize=%dx%d", d->vconf.required_bitrate, d->vconf.fps, d->vconf.vsize.width, d->vconf.vsize.height);
