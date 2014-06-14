@@ -316,7 +316,7 @@ static int msimx6vpu_h264_vpu_enc_init(MSIMX6VPUH264EncData *d) {
 	
 	memset(&d->sps, 0, sizeof(vpu_mem_desc));
 	d->sps.size = SPS_BUFFER_SIZE;
-	err = IOGetPhyMem(&d->sps.desc);
+	err = IOGetPhyMem(&d->sps);
 	if (err) {
 		ms_error("[msimx6vpu_h264_enc] error getting phymem for sps buffer");
 	}
@@ -329,7 +329,7 @@ static int msimx6vpu_h264_vpu_enc_init(MSIMX6VPUH264EncData *d) {
 	
 	memset(&d->pps, 0, sizeof(vpu_mem_desc));
 	d->pps.size = PPS_BUFFER_SIZE;
-	err = IOGetPhyMem(&d->pps.desc);
+	err = IOGetPhyMem(&d->pps);
 	if (err) {
 		ms_error("[msimx6vpu_h264_enc] error getting phymem for pps buffer");
 	}
