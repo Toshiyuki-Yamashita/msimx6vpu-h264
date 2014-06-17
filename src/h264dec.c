@@ -500,16 +500,7 @@ static int msimx6vpu_h264_vpu_dec_start(MSFilter *f) {
 
 static void msimx6vpu_h264_vpu_dec_close(IMX6VPUDecData *d) {
 	RetCode ret;
-	DecOutputInfo outinfos = {0};
 	int i;
-	
-	if (d->dec_frame_started) {
-		ms_warning("[msimx6vpu_h264_dec] decoder running, let's finish the operation first");
-		vpu_SWReset(d->handle, 0);
-		//ret = vpu_DecGetOutputInfo(d->handle, &outinfos);	
-		d->dec_frame_started = FALSE;
-		msimx6vpu_unlockVPU();
-	}
 	
 	ret = vpu_DecClose(d->handle);
 	if (ret == RETCODE_FRAME_NOT_COMPLETE) {
@@ -518,6 +509,12 @@ static void msimx6vpu_h264_vpu_dec_close(IMX6VPUDecData *d) {
 		if (ret != RETCODE_SUCCESS) {
 			ms_error("[msimx6vpu_h264_dec] vpu_DecClose error: %d", ret);
 		}
+	}
+	
+	if (d->dec_frame_started) {
+		ms_warning("[msimx6vpu_h264_dec] decoder running, let's finish the operation first");
+		d->dec_frame_started = FALSE;
+		msimx6vpu_unlockVPU();
 	}
 	
 	IOFreePhyMem(&d->ps_mem);
