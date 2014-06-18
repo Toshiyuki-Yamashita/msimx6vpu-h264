@@ -32,8 +32,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 static const MSVideoConfiguration h264_conf_list[] = {
 #if defined(ANDROID) || (TARGET_OS_IPHONE == 1) || defined(__arm__)
-	MS_H264_CONF( 170000,  512000, VGA, 12),
-	MS_H264_CONF( 128000,  170000, VGA, 10),
+	MS_H264_CONF( 170000,  512000, VGA,  12),
+	MS_H264_CONF( 128000,  170000, QVGA, 10),
 	MS_H264_CONF(  64000,  128000, QCIF,  7),
 	MS_H264_CONF(      0,   64000, QCIF,  5)
 #else
@@ -176,6 +176,7 @@ static int msimx6vpu_h264_vpu_enc_open(MSIMX6VPUH264EncData *d) {
 	oparam.slicemode = slicemode;
 	oparam.rcIntraQp = -1;
 	oparam.userGamma = (0.75*32768);
+	oparam.RcIntervalMode = 1;
 	oparam.EncStdParam.avcParam.paraset_refresh_en = 1;
 	
 	ret = vpu_EncOpen(&handle, &oparam);
@@ -232,22 +233,27 @@ static int msimx6vpu_h264_vpu_alloc_fb(MSIMX6VPUH264EncData *d) {
 			ms_error("[msimx6vpu_h264_enc] error getting phymem for buffer %i", i);
 			return -1;
 		}
+		d->fbpool[i]->addrY = d->fbpool[i]->desc.phy_addr;
+		d->fbpool[i]->addrCb = d->fbpool[i]->addrY + (enc_fbwidth * enc_fbheight);
+		d->fbpool[i]->addrCr = d->fbpool[i]->addrCb + (enc_fbwidth * enc_fbheight / 4);
+		d->fbpool[i]->mvColBuf = d->fbpool[i]->addrCr + (enc_fbwidth * enc_fbheight / 4);
+		d->fbpool[i]->strideY = enc_fbwidth;
+		d->fbpool[i]->strideC = enc_fbwidth / 2;
 		
 		d->fbs[i].myIndex = i;
-		d->fbs[i].bufY = d->fbpool[i]->desc.phy_addr;
-		d->fbs[i].bufCb = d->fbs[i].bufY + enc_fbwidth * enc_fbheight;
-		d->fbs[i].bufCr = d->fbs[i].bufCb + (enc_fbwidth * enc_fbheight) / 4;
-		d->fbs[i].bufMvCol = d->fbs[i].bufCr + (enc_fbwidth * enc_fbheight) / 4;
+		d->fbs[i].bufY = d->fbpool[i]->addrY;
+		d->fbs[i].bufCb = d->fbpool[i]->addrCb;
+		d->fbs[i].bufCr = d->fbpool[i]->addrCr;
+		d->fbs[i].bufMvCol = d->fbpool[i]->mvColBuf;
+		d->fbs[i].strideY = d->fbpool[i]->strideY;
+		d->fbs[i].strideC = d->fbpool[i]->strideC;
+		d->fbpool[i]->fb = &(d->fbs[i]);
 		
 		d->fbpool[i]->desc.virt_uaddr = IOGetVirtMem(&(d->fbpool[i]->desc));
 		if (d->fbpool[i]->desc.virt_uaddr <= 0) {
 			ms_error("[msimx6vpu_h264_enc] error getting virt mem for buffer %i", i);
 			return -1;
 		}
-		
-		d->fbpool[i]->fb = &(d->fbs[i]);
-		d->fbpool[i]->strideY = enc_fbwidth;
-		d->fbpool[i]->strideC = enc_fbwidth / 2;
 	}
 
 	subSampBaseA = d->fbs[d->minfbcount].bufY;
@@ -264,25 +270,33 @@ static int msimx6vpu_h264_vpu_alloc_fb(MSIMX6VPUH264EncData *d) {
 	d->fbpool[i] = (IMX6VPUFrameBuffer*) ms_malloc0(sizeof(IMX6VPUFrameBuffer));
 	memset(&(d->fbpool[i]->desc), 0, sizeof(vpu_mem_desc));
 	d->fbpool[i]->desc.size = 3 * src_fbwidth * src_fbheight / 2;
+	d->fbpool[i]->desc.size += (src_fbwidth * src_fbheight) / 4;
 	err = IOGetPhyMem(&d->fbpool[i]->desc);
 	if (err) {
 		ms_error("[msimx6vpu_h264_enc] error getting phymem for src buffer");
 		return -1;
 	}
+	d->fbpool[i]->addrY = d->fbpool[i]->desc.phy_addr;
+	d->fbpool[i]->addrCb = d->fbpool[i]->addrY + (src_fbwidth * src_fbheight);
+	d->fbpool[i]->addrCr = d->fbpool[i]->addrCb + (src_fbwidth * src_fbheight / 4);
+	d->fbpool[i]->mvColBuf = d->fbpool[i]->addrCr + (src_fbwidth * src_fbheight / 4);
+	d->fbpool[i]->strideY = src_fbwidth;
+	d->fbpool[i]->strideC = src_fbwidth / 2;
+	
 	d->fbs[i].myIndex = i;
-	d->fbs[i].bufY = d->fbpool[i]->desc.phy_addr;
-	d->fbs[i].bufCb = d->fbs[i].bufY + src_fbwidth * src_fbheight;
-	d->fbs[i].bufCr = d->fbs[i].bufCb + (src_fbwidth * src_fbheight) / 4;
+	d->fbs[i].bufY = d->fbpool[i]->addrY;
+	d->fbs[i].bufCb = d->fbpool[i]->addrCb;
+	d->fbs[i].bufCr = d->fbpool[i]->addrCr;
+	d->fbs[i].bufMvCol = d->fbpool[i]->mvColBuf;
+	d->fbs[i].strideY = d->fbpool[i]->strideY;
+	d->fbs[i].strideC = d->fbpool[i]->strideC;
+	d->fbpool[i]->fb = &(d->fbs[i]);
 		
 	d->fbpool[i]->desc.virt_uaddr = IOGetVirtMem(&(d->fbpool[i]->desc));
 	if (d->fbpool[i]->desc.virt_uaddr <= 0) {
 		ms_error("[msimx6vpu_h264_enc] error getting virt mem for src buffer");
 		return -1;
 	}
-
-	d->fbpool[i]->fb = &(d->fbs[i]);
-	d->fbpool[i]->strideY = src_fbwidth;
-	d->fbpool[i]->strideC = src_fbwidth / 2;
 		
 	return 0;
 }
@@ -312,11 +326,17 @@ static int msimx6vpu_h264_vpu_enc_init(MSIMX6VPUH264EncData *d) {
 	msimx6vpu_h264_vpu_alloc_fb(d);
 
 	header.headerType = SPS_RBSP;
-	vpu_EncGiveCommand(d->handle, ENC_PUT_AVC_HEADER, &header);
+	ret = vpu_EncGiveCommand(d->handle, ENC_PUT_AVC_HEADER, &header);
+	if (ret != RETCODE_SUCCESS) {
+		ms_error("[msimx6vpu_h264_enc] vpu_EncGiveCommand ENC_PUT_AVC_HEADER SPS_RBSP error: %i", ret);
+	}
 	
 	memset(&header, 0, sizeof(EncHeaderParam));
 	header.headerType = PPS_RBSP;
-	vpu_EncGiveCommand(d->handle, ENC_PUT_AVC_HEADER, &header);
+	ret = vpu_EncGiveCommand(d->handle, ENC_PUT_AVC_HEADER, &header);
+	if (ret != RETCODE_SUCCESS) {
+		ms_error("[msimx6vpu_h264_enc] vpu_EncGiveCommand ENC_PUT_AVC_HEADER PPS_RBSP error: %i", ret);
+	}
 	
 	msimx6vpu_unlockVPU();
 	
@@ -457,7 +477,6 @@ static int msimx6vpu_h264_vpu_read_ring_buffer(MSIMX6VPUH264EncData *d, int defa
 	
 	if (default_size > 0) {
 		if (size < default_size) {
-			ms_warning("[msimx6vpu_h264_enc] size %i < default size %i !", size, default_size);
 			return 0;
 		}
 		space = default_size;
@@ -489,6 +508,7 @@ static int msimx6vpu_h264_vpu_enc_start(MSFilter *f, MSQueue *nalus) {
 	RetCode ret;
 	EncParam params = {0};
 	EncOutputInfo outinfo = {0};
+	mblk_t *m;
 	
 	if (!d->enc_frame_started && !msimx6vpu_isBusy()) {
 		msimx6vpu_lockVPU();
@@ -507,7 +527,11 @@ static int msimx6vpu_h264_vpu_enc_start(MSFilter *f, MSQueue *nalus) {
 		d->enc_frame_started = TRUE;
 	}
 	
-	if (vpu_IsBusy() || !d->enc_frame_started) {
+	if (!d->enc_frame_started) {
+		return -1;
+	}
+	
+	if (vpu_IsBusy()) {
 		return -1;
 	}
 	
@@ -517,6 +541,12 @@ static int msimx6vpu_h264_vpu_enc_start(MSFilter *f, MSQueue *nalus) {
 		msimx6vpu_unlockVPU();
 		return -1;
 	}
+	
+	ms_message("[msimx6vpu_h264_enc] frame encoding complete, %i slices, type of frame %i", outinfo.numOfSlices, outinfo.picType);
+	if (outinfo.bitstreamWrapAround) {
+		ms_warning("[msimx6vpu_h264_enc] encoder reports a buffer wrap around!");
+	}
+	
 	d->enc_frame_started = FALSE;
 	msimx6vpu_unlockVPU();
 	
@@ -611,9 +641,9 @@ static void msimx6vpu_h264_vpu_fill_buffer(MSIMX6VPUH264EncData *d, MSPicture *p
 	
 	framebuff = d->fbpool[d->src_buffer_index];
 	offset = framebuff->desc.virt_uaddr - framebuff->desc.phy_addr;
-	dest_planes[0] = (uint8_t *) framebuff->fb->bufY + offset;
-	dest_planes[1] = (uint8_t *) framebuff->fb->bufCb + offset;
-	dest_planes[2] = (uint8_t *) framebuff->fb->bufCr + offset;
+	dest_planes[0] = (uint8_t *) framebuff->addrY + offset;
+	dest_planes[1] = (uint8_t *) framebuff->addrCb + offset;
+	dest_planes[2] = (uint8_t *) framebuff->addrCr + offset;
 	
 	dest_strides[0] = framebuff->strideY;
 	dest_strides[1] = framebuff->strideC;
@@ -799,7 +829,7 @@ static int msimx6vpu_h264_enc_add_fmtp(MSFilter *f, void *arg){
 	char value[12];
 	if (fmtp_get_value(fmtp, "packetization-mode", value, sizeof(value))) {
 		d->mode = atoi(value);
-		ms_message("packetization-mode set to %i", d->mode);
+		ms_message("[msimx6vpu_h264_enc] packetization-mode set to %i", d->mode);
 	}
 	return 0;
 }

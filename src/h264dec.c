@@ -260,21 +260,27 @@ static int msimx6vpu_h264_vpu_alloc_fb(IMX6VPUDecData *d) {
 			return -1;
 		}
 		
+		d->fbpool[i]->addrY = d->fbpool[i]->desc.phy_addr;
+		d->fbpool[i]->addrCb = d->fbpool[i]->addrY + (d->stride * d->picheight);
+		d->fbpool[i]->addrCr = d->fbpool[i]->addrCb + (d->stride * d->picheight / 4);
+		d->fbpool[i]->mvColBuf = d->fbpool[i]->addrCr + (d->stride * d->picheight / 4);
+		d->fbpool[i]->strideY = d->stride;
+		d->fbpool[i]->strideC = d->stride / 2;
+		
 		d->fbs[i].myIndex = i;
-		d->fbs[i].bufY = d->fbpool[i]->desc.phy_addr;
-		d->fbs[i].bufCb = d->fbs[i].bufY + d->stride * d->picheight;
-		d->fbs[i].bufCr = d->fbs[i].bufCb + (d->stride * d->picheight) / 4;
-		d->fbs[i].bufMvCol = d->fbs[i].bufCr + (d->stride * d->picheight) / 4;
+		d->fbs[i].bufY = d->fbpool[i]->addrY;
+		d->fbs[i].bufCb = d->fbpool[i]->addrCb;
+		d->fbs[i].bufCr = d->fbpool[i]->addrCr;
+		d->fbs[i].bufMvCol = d->fbpool[i]->mvColBuf;
+		d->fbs[i].strideY = d->fbpool[i]->strideY;
+		d->fbs[i].strideC = d->fbpool[i]->strideC;
+		d->fbpool[i]->fb = &(d->fbs[i]);
 		
 		d->fbpool[i]->desc.virt_uaddr = IOGetVirtMem(&(d->fbpool[i]->desc));
 		if (d->fbpool[i]->desc.virt_uaddr <= 0) {
 			ms_error("[msimx6vpu_h264_dec] error getting virt mem for buffer %i", i);
 			return -1;
 		}
-		
-		d->fbpool[i]->fb = &(d->fbs[i]);
-		d->fbpool[i]->strideY = d->stride;
-		d->fbpool[i]->strideC = d->stride / 2;
 	}
 	
 	bufinfo.avcSliceBufInfo.bufferBase = d->phy_slice_buf;
@@ -396,9 +402,9 @@ static void msimx6vpu_h264_frame_to_mblkt(MSFilter *f, int index) {
 	roi.height = d->outbuf.h;
 	
 	offset = framebuff->desc.virt_uaddr - framebuff->desc.phy_addr;
-	src_planes[0] = framebuff->fb->bufY + offset;
-	src_planes[1] = framebuff->fb->bufCb + offset;
-	src_planes[2] = framebuff->fb->bufCr + offset;
+	src_planes[0] = framebuff->addrY + offset;
+	src_planes[1] = framebuff->addrCb + offset;
+	src_planes[2] = framebuff->addrCr + offset;
 	src_planes[3] = NULL;
 	
 	src_strides[0] = framebuff->strideY;

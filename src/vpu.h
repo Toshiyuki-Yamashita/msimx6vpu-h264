@@ -29,6 +29,10 @@ typedef struct imx6vpu_framebuffer {
 	FrameBuffer *fb;
 	int strideY;
 	int strideC;
+	int addrY;
+	int addrCb;
+	int addrCr;
+	int mvColBuf;
 } IMX6VPUFrameBuffer;
 
 static VPUWrapper *imx6vpu;
