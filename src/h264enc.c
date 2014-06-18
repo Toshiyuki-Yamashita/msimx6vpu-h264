@@ -32,8 +32,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 static const MSVideoConfiguration h264_conf_list[] = {
 #if defined(ANDROID) || (TARGET_OS_IPHONE == 1) || defined(__arm__)
-	MS_H264_CONF( 170000,  512000, VGA,  12),
-	MS_H264_CONF( 128000,  170000, QVGA, 10),
+	MS_H264_CONF( 170000,  512000, VGA,  20),
+	MS_H264_CONF( 128000,  170000, QVGA, 15),
 	MS_H264_CONF(  64000,  128000, QCIF,  7),
 	MS_H264_CONF(      0,   64000, QCIF,  5)
 #else
@@ -145,7 +145,7 @@ static int msimx6vpu_h264_vpu_enc_open(MSIMX6VPUH264EncData *d) {
 	EncOpenParam oparam = {0};
 	EncSliceMode slicemode = {0};
 	
-	msimx6vpu_init();
+	msimx6vpu_init("enc");
 	
 	d->bitstream_mem.size = STREAM_BUF_SIZE;
 	ret = IOGetPhyMem(&d->bitstream_mem);
@@ -186,6 +186,7 @@ static int msimx6vpu_h264_vpu_enc_open(MSIMX6VPUH264EncData *d) {
 	}
 
 	d->handle = handle;
+	ms_message("[msimx6vpu_h264_enc] vpu encoder opened");
 	return 0;
 	
 err:
@@ -227,7 +228,6 @@ static int msimx6vpu_h264_vpu_alloc_fb(MSIMX6VPUH264EncData *d) {
 		
 		memset(&(d->fbpool[i]->desc), 0, sizeof(vpu_mem_desc));
 		d->fbpool[i]->desc.size = 3 * enc_fbwidth * enc_fbheight / 2;
-		d->fbpool[i]->desc.size += (enc_fbwidth * enc_fbheight) / 4;
 		err = IOGetPhyMem(&d->fbpool[i]->desc);
 		if (err) {
 			ms_error("[msimx6vpu_h264_enc] error getting phymem for buffer %i", i);
@@ -236,7 +236,6 @@ static int msimx6vpu_h264_vpu_alloc_fb(MSIMX6VPUH264EncData *d) {
 		d->fbpool[i]->addrY = d->fbpool[i]->desc.phy_addr;
 		d->fbpool[i]->addrCb = d->fbpool[i]->addrY + (enc_fbwidth * enc_fbheight);
 		d->fbpool[i]->addrCr = d->fbpool[i]->addrCb + (enc_fbwidth * enc_fbheight / 4);
-		d->fbpool[i]->mvColBuf = d->fbpool[i]->addrCr + (enc_fbwidth * enc_fbheight / 4);
 		d->fbpool[i]->strideY = enc_fbwidth;
 		d->fbpool[i]->strideC = enc_fbwidth / 2;
 		
@@ -244,7 +243,6 @@ static int msimx6vpu_h264_vpu_alloc_fb(MSIMX6VPUH264EncData *d) {
 		d->fbs[i].bufY = d->fbpool[i]->addrY;
 		d->fbs[i].bufCb = d->fbpool[i]->addrCb;
 		d->fbs[i].bufCr = d->fbpool[i]->addrCr;
-		d->fbs[i].bufMvCol = d->fbpool[i]->mvColBuf;
 		d->fbs[i].strideY = d->fbpool[i]->strideY;
 		d->fbs[i].strideC = d->fbpool[i]->strideC;
 		d->fbpool[i]->fb = &(d->fbs[i]);
@@ -270,7 +268,6 @@ static int msimx6vpu_h264_vpu_alloc_fb(MSIMX6VPUH264EncData *d) {
 	d->fbpool[i] = (IMX6VPUFrameBuffer*) ms_malloc0(sizeof(IMX6VPUFrameBuffer));
 	memset(&(d->fbpool[i]->desc), 0, sizeof(vpu_mem_desc));
 	d->fbpool[i]->desc.size = 3 * src_fbwidth * src_fbheight / 2;
-	d->fbpool[i]->desc.size += (src_fbwidth * src_fbheight) / 4;
 	err = IOGetPhyMem(&d->fbpool[i]->desc);
 	if (err) {
 		ms_error("[msimx6vpu_h264_enc] error getting phymem for src buffer");
@@ -279,7 +276,6 @@ static int msimx6vpu_h264_vpu_alloc_fb(MSIMX6VPUH264EncData *d) {
 	d->fbpool[i]->addrY = d->fbpool[i]->desc.phy_addr;
 	d->fbpool[i]->addrCb = d->fbpool[i]->addrY + (src_fbwidth * src_fbheight);
 	d->fbpool[i]->addrCr = d->fbpool[i]->addrCb + (src_fbwidth * src_fbheight / 4);
-	d->fbpool[i]->mvColBuf = d->fbpool[i]->addrCr + (src_fbwidth * src_fbheight / 4);
 	d->fbpool[i]->strideY = src_fbwidth;
 	d->fbpool[i]->strideC = src_fbwidth / 2;
 	
@@ -287,7 +283,6 @@ static int msimx6vpu_h264_vpu_alloc_fb(MSIMX6VPUH264EncData *d) {
 	d->fbs[i].bufY = d->fbpool[i]->addrY;
 	d->fbs[i].bufCb = d->fbpool[i]->addrCb;
 	d->fbs[i].bufCr = d->fbpool[i]->addrCr;
-	d->fbs[i].bufMvCol = d->fbpool[i]->mvColBuf;
 	d->fbs[i].strideY = d->fbpool[i]->strideY;
 	d->fbs[i].strideC = d->fbpool[i]->strideC;
 	d->fbpool[i]->fb = &(d->fbs[i]);
@@ -308,6 +303,7 @@ static int msimx6vpu_h264_vpu_enc_init(MSIMX6VPUH264EncData *d) {
 	EncHeaderParam header = {0};
 	
 	if (msimx6vpu_isBusy()) {
+		ms_warning("[msimx6vpu_h264_enc] vpu is busy, enc init delayed");
 		return -1;
 	}
 	
@@ -323,12 +319,18 @@ static int msimx6vpu_h264_vpu_enc_init(MSIMX6VPUH264EncData *d) {
 	d->regfbcount = d->minfbcount + 2 + 1; // 1 is for the src buffer
 	d->src_buffer_index = d->regfbcount - 1;
 	
-	msimx6vpu_h264_vpu_alloc_fb(d);
+	ms_message("[msimx6vpu_h264_enc] allocating frame buffers");
+	if (msimx6vpu_h264_vpu_alloc_fb(d) < 0) {
+		ms_message("[msimx6vpu_h264_enc] error allocating frame buffers");
+		return -1;
+	}
+	ms_message("[msimx6vpu_h264_enc] frame buffer allocated");
 
 	header.headerType = SPS_RBSP;
 	ret = vpu_EncGiveCommand(d->handle, ENC_PUT_AVC_HEADER, &header);
 	if (ret != RETCODE_SUCCESS) {
 		ms_error("[msimx6vpu_h264_enc] vpu_EncGiveCommand ENC_PUT_AVC_HEADER SPS_RBSP error: %i", ret);
+		return -1;
 	}
 	
 	memset(&header, 0, sizeof(EncHeaderParam));
@@ -336,6 +338,7 @@ static int msimx6vpu_h264_vpu_enc_init(MSIMX6VPUH264EncData *d) {
 	ret = vpu_EncGiveCommand(d->handle, ENC_PUT_AVC_HEADER, &header);
 	if (ret != RETCODE_SUCCESS) {
 		ms_error("[msimx6vpu_h264_enc] vpu_EncGiveCommand ENC_PUT_AVC_HEADER PPS_RBSP error: %i", ret);
+		return -1;
 	}
 	
 	msimx6vpu_unlockVPU();
@@ -563,6 +566,13 @@ static void msimx6vpu_h264_vpu_enc_close(MSIMX6VPUH264EncData *d) {
 	EncOutputInfo outinfo = {0};
 	int i;
 	
+	if (d->enc_frame_started) {
+		ms_warning("[msimx6vpu_h264_enc] encoder running, let's finish the operation first");
+		d->enc_frame_started = FALSE;
+		vpu_SWReset(d->handle, 0);
+		msimx6vpu_unlockVPU();
+	}
+	
 	ret = vpu_EncClose(d->handle);
 	if (ret == RETCODE_FRAME_NOT_COMPLETE) {
 		vpu_SWReset(d->handle, 0);
@@ -571,23 +581,23 @@ static void msimx6vpu_h264_vpu_enc_close(MSIMX6VPUH264EncData *d) {
 			ms_error("[msimx6vpu_h264_enc] vpu_EncClose error: %d", ret);
 		}
 	}
+	ms_message("[msimx6vpu_h264_enc] encoder closed");
 	
-	if (d->enc_frame_started) {
-		ms_warning("[msimx6vpu_h264_enc] encoder running, let's finish the operation first");
-		d->enc_frame_started = FALSE;
-		msimx6vpu_unlockVPU();
+	if (d->handle != NULL) {
+		IOFreeVirtMem(&d->bitstream_mem);
+		IOFreePhyMem(&d->bitstream_mem);
+		if (d->configure_done) {
+			for (i = 0; i < d->regfbcount; i++) {
+				IOFreeVirtMem(&d->fbpool[i]->desc);
+				IOFreePhyMem(&d->fbpool[i]->desc);
+			}
+			ms_free(d->fbpool);
+			ms_free(d->fbs);
+		}
+		ms_message("[msimx6vpu_h264_enc] memory freed");
 	}
 	
-	IOFreeVirtMem(&d->bitstream_mem);
-	IOFreePhyMem(&d->bitstream_mem);
-	for (i = 0; i < d->regfbcount; i++) {
-		IOFreeVirtMem(&d->fbpool[i]->desc);
-		IOFreePhyMem(&d->fbpool[i]->desc);
-	}
-	
-	msimx6vpu_close();
-	ms_free(d->fbpool);
-	ms_free(d->fbs);
+	msimx6vpu_close("enc");
 }
 
 /******************************************************************************
@@ -668,11 +678,13 @@ static void msimx6vpu_h264_enc_process(MSFilter *f) {
 		return;
 	}
 	
+	ms_filter_lock(f);
 	ms_queue_init(&nalus);
 	while ((im = ms_queue_get(f->inputs[0])) != NULL) {
 		if (ms_yuv_buf_init_from_mblk(&pic, im) == 0) {
 			/* send I frame 2 seconds and 4 seconds after the beginning */
 			if (video_starter_need_i_frame(&d->starter, f->ticker->time)) {
+				ms_message("[msimx6vpu_h264_enc] asking encoder for keyframe");
 				d->generate_keyframe = TRUE;
 			}
 			
@@ -709,6 +721,7 @@ static void msimx6vpu_h264_enc_process(MSFilter *f) {
 			}
 		}
 	}
+	ms_filter_unlock(f);
 }
 
 

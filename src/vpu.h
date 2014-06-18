@@ -37,8 +37,8 @@ typedef struct imx6vpu_framebuffer {
 
 static VPUWrapper *imx6vpu;
 
-int msimx6vpu_init();
-void msimx6vpu_close();
+int msimx6vpu_init(const char *caller);
+void msimx6vpu_close(const char *caller);
 bool_t msimx6vpu_isBusy();
 void msimx6vpu_lockVPU();
 void msimx6vpu_unlockVPU();

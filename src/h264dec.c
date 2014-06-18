@@ -75,7 +75,7 @@ static int msimx6vpu_h264_vpu_dec_open(IMX6VPUDecData *d) {
 	DecHandle handle = {0};
 	DecOpenParam oparam = {0};
 	
-	msimx6vpu_init();
+	msimx6vpu_init("dec");
 	
 	d->bitstream_mem.size = STREAM_BUF_SIZE;
 	ret = IOGetPhyMem(&d->bitstream_mem);
@@ -104,6 +104,7 @@ static int msimx6vpu_h264_vpu_dec_open(IMX6VPUDecData *d) {
 	oparam.psSaveBufferSize = PS_SAVE_SIZE;
 	oparam.jpgLineBufferMode = 1;
 	oparam.chromaInterleave = 0;
+	oparam.bitstreamMode = 1;
 	
 	ret = vpu_DecOpen(&handle, &oparam);
 	if (ret != RETCODE_SUCCESS) {
@@ -306,7 +307,7 @@ static int msimx6vpu_h264_vpu_dec_init(IMX6VPUDecData *d) {
 	if (msimx6vpu_isBusy()) {
 		return -1;
 	}
-	
+
 	msimx6vpu_lockVPU();
 	vpu_DecSetEscSeqInit(d->handle, 1);
 	ret = vpu_DecGetInitialInfo(d->handle, &initinfo);
@@ -446,7 +447,7 @@ static int msimx6vpu_h264_vpu_dec_start(MSFilter *f) {
 	if (ret != RETCODE_SUCCESS) {
 		ms_error("[msimx6vpu_h264_dec] vpu_DecGetOutputInfo error: %d", ret);
 		msimx6vpu_unlockVPU();
-		return -1;
+		return -2;
 	}
 	msimx6vpu_unlockVPU();
 	
@@ -454,19 +455,19 @@ static int msimx6vpu_h264_vpu_dec_start(MSFilter *f) {
 		ms_warning("[msimx6vpu_h264_dec] incomplete finish of decoding");
 		ms_filter_notify_no_arg(f, MS_VIDEO_DECODER_DECODING_ERRORS);
 		vpu->dec_frame_started = FALSE;
-		return -1;
+		return -2;
 	}
 	if (outinfos.notSufficientPsBuffer) {
 		ms_error("[msimx6vpu_h264_dec] vpu_DecGetOutputInfo error: PS buffer overflow");
 		ms_filter_notify_no_arg(f, MS_VIDEO_DECODER_DECODING_ERRORS);
 		vpu->dec_frame_started = FALSE;
-		return -1;
+		return -2;
 	}
 	if (outinfos.notSufficientSliceBuffer) {
 		ms_error("[msimx6vpu_h264_dec] vpu_DecGetOutputInfo error: Slice buffer overflow");
 		ms_filter_notify_no_arg(f, MS_VIDEO_DECODER_DECODING_ERRORS);
 		vpu->dec_frame_started = FALSE;
-		return -1;
+		return -2;
 	}
 	
 	if (outinfos.indexFrameDecoded >= 0) {
@@ -504,37 +505,44 @@ static int msimx6vpu_h264_vpu_dec_start(MSFilter *f) {
 }
 
 
-static void msimx6vpu_h264_vpu_dec_close(IMX6VPUDecData *d) {
+static void msimx6vpu_h264_vpu_dec_close(MSIMX6VPUH264DecData *d) {
+	IMX6VPUDecData *vpu = d->vpu;
 	RetCode ret;
+	DecOutputInfo outinfos = {0};
 	int i;
 	
-	ret = vpu_DecClose(d->handle);
+	if (vpu->dec_frame_started) {
+		ms_warning("[msimx6vpu_h264_dec] decoder running, let's finish the operation first");
+		vpu_SWReset(vpu->handle, 0);
+		vpu->dec_frame_started = FALSE;
+		msimx6vpu_unlockVPU();
+	}
+	
+	ret = vpu_DecClose(vpu->handle);
 	if (ret == RETCODE_FRAME_NOT_COMPLETE) {
-		vpu_SWReset(d->handle, 0);
-		ret = vpu_DecClose(d->handle);
+		vpu_SWReset(vpu->handle, 0);
+		ret = vpu_DecClose(vpu->handle);
 		if (ret != RETCODE_SUCCESS) {
 			ms_error("[msimx6vpu_h264_dec] vpu_DecClose error: %d", ret);
 		}
 	}
 	
-	if (d->dec_frame_started) {
-		ms_warning("[msimx6vpu_h264_dec] decoder running, let's finish the operation first");
-		d->dec_frame_started = FALSE;
-		msimx6vpu_unlockVPU();
+	if (vpu->handle != NULL) {
+		IOFreePhyMem(&vpu->ps_mem);
+		IOFreeVirtMem(&vpu->bitstream_mem);
+		IOFreePhyMem(&vpu->bitstream_mem);
+		IOFreePhyMem(&vpu->slice_mem);
+		if (d->configure_done) {
+			for (i = 0; i < vpu->regfbcount; i++) {
+				IOFreeVirtMem(&vpu->fbpool[i]->desc);
+				IOFreePhyMem(&vpu->fbpool[i]->desc);
+			}
+			ms_free(vpu->fbpool);
+			ms_free(vpu->fbs);
+		}
 	}
 	
-	IOFreePhyMem(&d->ps_mem);
-	IOFreeVirtMem(&d->bitstream_mem);
-	IOFreePhyMem(&d->bitstream_mem);
-	IOFreePhyMem(&d->slice_mem);
-	for (i = 0; i < d->regfbcount; i++) {
-		IOFreeVirtMem(&d->fbpool[i]->desc);
-		IOFreePhyMem(&d->fbpool[i]->desc);
-	}
-	
-	msimx6vpu_close();
-	ms_free(d->fbpool);
-	ms_free(d->fbs);
+	msimx6vpu_close("dec");
 }
 
 /******************************************************************************
@@ -705,7 +713,7 @@ static void msimx6vpu_h264_dec_process(MSFilter *f) {
 					msimx6vpu_unlockVPU();
 				}
 				d->configure_done = FALSE;
-				msimx6vpu_h264_vpu_dec_close(d->vpu);
+				msimx6vpu_h264_vpu_dec_close(d);
 				msimx6vpu_h264_vpu_dec_open(d->vpu);
 				d->vpu->dec_frame_started = FALSE;
 				ms_message("[msimx6vpu_h264_dec] reinit done");
@@ -734,14 +742,13 @@ static void msimx6vpu_h264_dec_process(MSFilter *f) {
 /*
 static void msimx6vpu_h264_dec_postprocess(MSFilter *f) {
 	MSIMX6VPUH264DecData *d = (MSIMX6VPUH264DecData*)f->data;
-	
 }
 */
 
 static void msimx6vpu_h264_dec_uninit(MSFilter *f) {
 	MSIMX6VPUH264DecData *d = (MSIMX6VPUH264DecData *)f->data;
 	
-	msimx6vpu_h264_vpu_dec_close(d->vpu);
+	msimx6vpu_h264_vpu_dec_close(d);
 	rfc3984_uninit(&d->unpacker);
 	if (d->sps) freemsg(d->sps);
 	if (d->pps) freemsg(d->pps);
