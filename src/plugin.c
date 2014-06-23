@@ -17,28 +17,16 @@ along with this program; if not, write to the Free Software
 Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 */
 
-typedef struct VPUWrapper {
-	bool_t is_initialised;
-	int refcount;
-	bool_t is_ready;
-} VPUWrapper;
+#include "mediastreamer2/mscommon.h"
 
+extern void libmsimx6vpu_h264_init_enc(void);
+extern void libmsimx6vpu_h264_init_dec(void);
 
-typedef struct imx6vpu_framebuffer {
-	vpu_mem_desc desc;
-	FrameBuffer *fb;
-	int strideY;
-	int strideC;
-	int addrY;
-	int addrCb;
-	int addrCr;
-	int mvColBuf;
-} IMX6VPUFrameBuffer;
+/******************************************************************************
+ * Init routine																  *
+ *****************************************************************************/
 
-static VPUWrapper *imx6vpu;
-
-int msimx6vpu_init(const char *caller);
-void msimx6vpu_close(const char *caller);
-bool_t msimx6vpu_isBusy();
-void msimx6vpu_lockVPU();
-void msimx6vpu_unlockVPU();
+MS2_PUBLIC void libmsimx6vpu_h264_init(void) {
+	libmsimx6vpu_h264_init_enc();
+	libmsimx6vpu_h264_init_dec();
+}
