@@ -332,7 +332,7 @@ MSFilterDesc msimx6vpu_h264_dec_desc = {
 	.postprocess = msimx6vpu_h264_dec_postprocess,
 	.uninit = msimx6vpu_h264_dec_uninit,
 	.methods = msimx6vpu_h264_dec_methods,
-	.flags = 0
+	.flags = MS_FILTER_IS_PUMP
 };
 
 /******************************************************************************

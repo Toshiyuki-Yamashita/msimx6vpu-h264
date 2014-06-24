@@ -986,6 +986,7 @@ int VpuWrapper::VpuDecodeFrame(MSIMX6VPUH264DecData* d)
 		if (ret != RETCODE_SUCCESS) {
 			ms_warning("[vpu_wrapper] failed to clear frame buffer %d", outinfos.indexFrameDecoded);
 		}
+		return 0;
 	} else {
 		for (i = 0; i < d->regfbcount; i++) {
 			ret = vpu_DecClrDispFlag(d->handle, i);
@@ -993,9 +994,8 @@ int VpuWrapper::VpuDecodeFrame(MSIMX6VPUH264DecData* d)
 				ms_warning("[vpu_wrapper] failed to clear frame buffer %d", i);
 			}
 		}
+		return -1;
 	}
-	
-	return 0;
 }
 
 int VpuWrapper::VpuEncodeFrame(MSIMX6VPUH264EncData* d, MSQueue *nalus)
