@@ -142,7 +142,7 @@ void* run(VpuWrapper *wrapper)
 	ms_thread_exit(NULL);
 }
 
-VpuWrapper::VpuWrapper() : isVpuInitialized(FALSE), debugModeEnabled(FALSE), threadRunning(FALSE), encodeFrameCommandCount(0), decodeFrameCommandCount(0)
+VpuWrapper::VpuWrapper() : isVpuInitialized(FALSE), debugModeEnabled(TRUE), threadRunning(FALSE), encodeFrameCommandCount(0), decodeFrameCommandCount(0)
 {
 	if (debugModeEnabled) ms_message("[vpu_wrapper] vpu wrapper created");
 }
@@ -387,6 +387,7 @@ int VpuWrapper::VpuInitDecoder(MSIMX6VPUH264DecData* d)
 	} else {
 		d->regfbcount = d->minfbcount + 2;
 	}
+	if (debugModeEnabled) ms_warning("[vpu_wrapper] using %i fb buffers for decoder", d->regfbcount);
 	d->picwidth = ((initinfo.picWidth + 15) & ~15);
 	d->picheight = ((initinfo.picHeight + 31) & ~(31));
 	
@@ -437,6 +438,7 @@ int VpuWrapper::VpuInitEncoder(MSIMX6VPUH264EncData* d)
 
 	d->minfbcount = initinfo.minFrameBufferCount;
 	d->regfbcount = d->minfbcount + 2 + 1; // 1 is for the src buffer
+	if (debugModeEnabled) ms_warning("[vpu_wrapper] using %i fb buffers for encoder", d->regfbcount);
 	d->src_buffer_index = d->regfbcount - 1;
 	
 	if (VpuAllocEncoderBuffer(d) < 0) {
@@ -506,7 +508,6 @@ int VpuWrapper::VpuAllocDecoderBuffer(MSIMX6VPUH264DecData* d)
 		d->fbs[i].bufMvCol = d->fbpool[i]->mvColBuf;
 		d->fbs[i].strideY = d->fbpool[i]->strideY;
 		d->fbs[i].strideC = d->fbpool[i]->strideC;
-		d->fbpool[i]->fb = &(d->fbs[i]);
 		
 		d->fbpool[i]->desc.virt_uaddr = IOGetVirtMem(&(d->fbpool[i]->desc));
 		if (d->fbpool[i]->desc.virt_uaddr <= 0) {
@@ -593,7 +594,6 @@ int VpuWrapper::VpuAllocEncoderBuffer(MSIMX6VPUH264EncData* d)
 		d->fbs[i].bufCr = d->fbpool[i]->addrCr;
 		d->fbs[i].strideY = d->fbpool[i]->strideY;
 		d->fbs[i].strideC = d->fbpool[i]->strideC;
-		d->fbpool[i]->fb = &(d->fbs[i]);
 		
 		d->fbpool[i]->desc.virt_uaddr = IOGetVirtMem(&(d->fbpool[i]->desc));
 		if (d->fbpool[i]->desc.virt_uaddr <= 0) {
@@ -885,6 +885,7 @@ int VpuWrapper::VpuReadEncoderBuffer(MSIMX6VPUH264EncData* d, MSQueue *nalus)
 		target_addr = d->bitstream_mem.virt_uaddr + (pa_read_ptr - d->bitstream_mem.phy_addr);
 		if (target_addr + space > d->bitstream_mem.virt_uaddr + STREAM_BUF_SIZE) {
 			room = d->bitstream_mem.virt_uaddr + STREAM_BUF_SIZE - target_addr;
+			if (debugModeEnabled) ms_warning("[vpu_wrapper] frame (%i) is around the buffer of %i", space, space - room);
 			frame_to_nalus(nalus, (void *)target_addr, room, (void *)d->bitstream_mem.virt_uaddr, space - room);
 		} else {
 			frame_to_nalus(nalus, (void *)target_addr, space, NULL, 0);
@@ -912,6 +913,7 @@ static void frame_to_mblkt(MSIMX6VPUH264DecData *d, int index) {
 	if (d->yuv_msg) {
 		freemsg(d->yuv_msg);
 	}
+	
 	d->yuv_msg = ms_yuv_buf_alloc(&d->outbuf, d->picwidth, d->picheight);
 	roi.width = d->outbuf.w;
 	roi.height = d->outbuf.h;
@@ -1045,6 +1047,16 @@ int VpuWrapper::VpuEncodeFrame(MSIMX6VPUH264EncData* d, MSQueue *nalus)
 	return VpuReadEncoderBuffer(d, nalus);
 }
 
+void free_framebuffer(IMX6VPUFrameBuffer *fb) {
+	if (fb->desc.virt_uaddr) {
+		IOFreeVirtMem(&fb->desc);
+	}
+	if (fb->desc.phy_addr) {
+		IOFreePhyMem(&fb->desc);
+	}
+	memset(&fb->desc, 0, sizeof(vpu_mem_desc));
+}
+
 void VpuWrapper::VpuCloseDecoder(MSIMX6VPUH264DecData* d)
 {
 	RetCode ret;
@@ -1064,12 +1076,21 @@ void VpuWrapper::VpuCloseDecoder(MSIMX6VPUH264DecData* d)
 		IOFreeVirtMem(&d->bitstream_mem);
 		IOFreePhyMem(&d->bitstream_mem);
 		IOFreePhyMem(&d->slice_mem);
-		if (d->configure_done) {
-			for (i = 0; i < d->regfbcount; i++) {
-				IOFreeVirtMem(&d->fbpool[i]->desc);
-				IOFreePhyMem(&d->fbpool[i]->desc);
-			}
+	}
+	
+	if (d->fbpool) {
+		for (i = 0; i < d->regfbcount; i++) {
+			if (debugModeEnabled) ms_warning("[vpu_wrapper] dec freed buffer %i", i);
+			free_framebuffer(d->fbpool[i]);
 		}
+	}
+	if (d->fbs) {
+		ms_free(d->fbs);
+		d->fbs = NULL;
+	}
+	if (d->fbpool) {
+		ms_free(d->fbpool);
+		d->fbpool = NULL;
 	}
 	
 	d->handle = NULL;
@@ -1093,12 +1114,21 @@ void VpuWrapper::VpuCloseEncoder(MSIMX6VPUH264EncData* d)
 	if (d->handle != NULL) {
 		IOFreeVirtMem(&d->bitstream_mem);
 		IOFreePhyMem(&d->bitstream_mem);
-		if (d->configure_done) {
-			for (i = 0; i < d->regfbcount; i++) {
-				IOFreeVirtMem(&d->fbpool[i]->desc);
-				IOFreePhyMem(&d->fbpool[i]->desc);
-			}
+	}
+	
+	if (d->fbpool) {
+		for (i = 0; i < d->regfbcount; i++) {
+			if (debugModeEnabled) ms_warning("[vpu_wrapper] enc freed buffer %i", i);
+			free_framebuffer(d->fbpool[i]);
 		}
+	}
+	if (d->fbs) {
+		ms_free(d->fbs);
+		d->fbs = NULL;
+	}
+	if (d->fbpool) {
+		ms_free(d->fbpool);
+		d->fbpool = NULL;
 	}
 	
 	d->handle = NULL;

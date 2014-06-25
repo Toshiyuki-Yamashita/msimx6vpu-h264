@@ -170,11 +170,10 @@ void decoder_close_callback(void *v, int result) {
 	MSIMX6VPUH264DecData *d = (MSIMX6VPUH264DecData *)v;
 	ms_message("[msimx6vpu_h264_dec] close callback");
 	d->configure_done = FALSE;
-	
-	ms_filter_lock(d->filter);
-	ms_free(d->fbpool);
-	ms_free(d->fbs);
-	ms_filter_unlock(d->filter);
+}
+
+void decoder_uninit_callback(void *v, int result) {
+	ms_message("[msimx6vpu_h264_dec] uninit callback");
 }
 
 static void msimx6vpu_h264_dec_init(MSFilter *f) {
@@ -277,7 +276,7 @@ static void msimx6vpu_h264_dec_uninit(MSFilter *f) {
 	if (d->pps) freemsg(d->pps);
 	if (d->yuv_msg) freemsg(d->yuv_msg);
 	ms_free(d);
-	VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(VPU_UNINIT, NULL, NULL, NULL));
+	VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(VPU_UNINIT, NULL, &decoder_uninit_callback, NULL));
 }
 
 /******************************************************************************

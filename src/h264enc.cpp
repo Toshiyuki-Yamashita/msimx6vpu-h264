@@ -108,11 +108,10 @@ void encoder_close_callback(void *v, int result) {
 	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData *)v;
 	ms_message("[msimx6vpu_h264_enc] close callback");
 	d->configure_done = FALSE;
-	
-	ms_filter_lock(d->filter);
-	ms_free(d->fbpool);
-	ms_free(d->fbs);
-	ms_filter_unlock(d->filter);
+}
+
+void encoder_uninit_callback(void *v, int result) {
+	ms_message("[msimx6vpu_h264_enc] uninit callback");
 }
 
 /******************************************************************************
@@ -219,7 +218,7 @@ static void msimx6vpu_h264_enc_postprocess(MSFilter *f) {
 static void msimx6vpu_h264_enc_uninit(MSFilter *f) {
 	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData *)f->data;
 	ms_free(d);
-	VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(VPU_UNINIT, NULL, NULL, NULL));
+	VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(VPU_UNINIT, NULL, &encoder_uninit_callback, NULL));
 }
 
 /******************************************************************************

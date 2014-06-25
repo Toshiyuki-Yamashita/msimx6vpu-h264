@@ -33,7 +33,6 @@ extern  "C"
 
 	typedef struct imx6vpu_framebuffer {
 		vpu_mem_desc desc;
-		FrameBuffer *fb;
 		int strideY;
 		int strideC;
 		int addrY;
