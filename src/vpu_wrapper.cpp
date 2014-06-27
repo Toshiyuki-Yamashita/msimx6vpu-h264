@@ -904,9 +904,10 @@ int VpuWrapper::VpuReadEncoderBuffer(MSIMX6VPUH264EncData* d, MSQueue *nalus)
 static void frame_to_mblkt(MSIMX6VPUH264DecData *d, int index) {
 	IMX6VPUFrameBuffer *framebuff;
 	MSVideoSize roi = {0};
-	uint8_t *src_planes[4];
-	int src_strides[4];
+	uint8_t *src_planes[3];
+	int src_strides[3];
 	int offset;
+	int i;
 	
 	framebuff = d->fbpool[index];
 	
@@ -922,14 +923,22 @@ static void frame_to_mblkt(MSIMX6VPUH264DecData *d, int index) {
 	src_planes[0] = framebuff->addrY + offset;
 	src_planes[1] = framebuff->addrCb + offset;
 	src_planes[2] = framebuff->addrCr + offset;
-	src_planes[3] = NULL;
 	
 	src_strides[0] = framebuff->strideY;
 	src_strides[1] = framebuff->strideC;
 	src_strides[2] = framebuff->strideC;
-	src_strides[3] = 0;
 	
-	ms_yuv_buf_copy(src_planes, src_strides, d->outbuf.planes, d->outbuf.strides, roi);
+	for (int i = 0; i < 3; i++) {
+		uint8_t *dst = d->outbuf.planes[i];
+		uint8_t *src = src_planes[i];
+		int h = d->picheight >> (( i > 0) ? 1 : 0);
+
+		for(int j = 0; j < h; j++) {
+			memcpy(dst, src, d->outbuf.strides[i]);
+			dst += d->outbuf.strides[i];
+			src += src_strides[(i == 0) ? 0 : 1];
+		}
+	}
 }
 
 int VpuWrapper::VpuDecodeFrame(MSIMX6VPUH264DecData* d)
