@@ -99,6 +99,7 @@ extern  "C"
 		MSPicture outbuf;
 		mblk_t *yuv_msg;
 		bool_t shutdown;
+		int frameSize;
 	} MSIMX6VPUH264DecData;
 
 enum VpuCommandEnum {
@@ -141,15 +142,15 @@ public:
 	bool_t IsVpuInitialized();
 	void VpuQueueCommand(VpuCommand *command);
 	VpuCommand* VpuDequeueCommand();
+	~VpuWrapper();
 	
 	bool_t isVpuInitialized;
 	bool_t debugModeEnabled;
 	bool_t threadRunning;
 private:
 	VpuWrapper();
-	~VpuWrapper();
 	int VpuInit();
-	void VpuUnInit();
+	int VpuUnInit();
 	int VpuOpenEncoder(MSIMX6VPUH264EncData *d);
 	int VpuOpenDecoder(MSIMX6VPUH264DecData *d);
 	int VpuInitEncoder(MSIMX6VPUH264EncData *d);
@@ -157,7 +158,7 @@ private:
 	int VpuAllocEncoderBuffer(MSIMX6VPUH264EncData *d);
 	int VpuAllocDecoderBuffer(MSIMX6VPUH264DecData *d);
 	int VpuReadEncoderBuffer(MSIMX6VPUH264EncData *d, MSQueue *nalus);
-	int VpuFillDecoderBuffer(MSIMX6VPUH264DecData *d, int available);
+	int VpuFillDecoderBuffer(MSIMX6VPUH264DecData *d);
 	int VpuFillEncoderBuffer(MSIMX6VPUH264EncData *d, MSPicture *pic);
 	void VpuCloseEncoder(MSIMX6VPUH264EncData *d);
 	void VpuCloseDecoder(MSIMX6VPUH264DecData *d);
@@ -169,6 +170,7 @@ private:
 	ms_thread_t thread;
 	int encodeFrameCommandCount;
 	int decodeFrameCommandCount;
+	bool_t encoderClosed, decoderClosed;
 };
 
 static VpuWrapper *vpuWrapperInstance;

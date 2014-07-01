@@ -66,7 +66,7 @@ static bool_t check_pps_change(MSIMX6VPUH264DecData *d, mblk_t *pps){
 
 static void enlarge_bitstream(MSIMX6VPUH264DecData *d, int new_size){
 	d->bitstream_size = new_size;
-	d->bitstream = ms_realloc(d->bitstream, d->bitstream_size);
+	d->bitstream = (uint8_t*) ms_realloc(d->bitstream, d->bitstream_size);
 }
 
 static int nalusToFrame(MSIMX6VPUH264DecData *d, MSQueue *naluq, bool_t *new_sps_pps){
@@ -173,7 +173,19 @@ void decoder_close_callback(void *v, int result) {
 }
 
 void decoder_uninit_callback(void *v, int result) {
+	MSIMX6VPUH264DecData *d = (MSIMX6VPUH264DecData *)v;
 	ms_message("[msimx6vpu_h264_dec] uninit callback");
+	
+	ms_free(d->bitstream);
+	if (d->sps) freemsg(d->sps);
+	if (d->pps) freemsg(d->pps);
+	if (d->yuv_msg) freemsg(d->yuv_msg);
+	ms_free(d);
+	
+	if (result == 0 && vpuWrapperInstance) {
+		ms_message("[msimx6vpu_h264_dec] deleting vpu wrapper instance");
+		delete vpuWrapperInstance;
+	}
 }
 
 static void msimx6vpu_h264_dec_init(MSFilter *f) {
@@ -185,9 +197,10 @@ static void msimx6vpu_h264_dec_init(MSFilter *f) {
 	d->outbuf.w = 0;
 	d->outbuf.h = 0;
 	d->yuv_msg = NULL;
+	d->frameSize = 0;
 	    
 	d->bitstream_size = 65536;
-	d->bitstream = ms_malloc0(d->bitstream_size);
+	d->bitstream = (uint8_t*) ms_malloc0(d->bitstream_size);
 	d->handle = NULL;
 	d->first_image_decoded = FALSE;
 	d->decode_frame_command_queued = FALSE;
@@ -230,10 +243,8 @@ static void msimx6vpu_h264_dec_process(MSFilter *f) {
 		}
 		rfc3984_unpack(&d->unpacker, im, &nalus);
 		if (!ms_queue_empty(&nalus)) {
-			int size;
 			bool_t need_reinit = FALSE;
-			
-			size = nalusToFrame(d, &nalus, &need_reinit);
+			d->frameSize = nalusToFrame(d, &nalus, &need_reinit);
 			
 			if (need_reinit && d->configure_done) {
 				ms_message("[msimx6vpu_h264_dec] need reinit");
@@ -243,7 +254,7 @@ static void msimx6vpu_h264_dec_process(MSFilter *f) {
 			}
 
 			if (d->handle != NULL) {
-				VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(FILL_DECODER_BUFFER, d, &decoder_fill_buffer_callback, size));
+				VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(FILL_DECODER_BUFFER, d, &decoder_fill_buffer_callback, NULL));
 			}
 			
 			if (!d->configure_done && d->handle != NULL) {
@@ -270,13 +281,7 @@ static void msimx6vpu_h264_dec_postprocess(MSFilter *f) {
 
 static void msimx6vpu_h264_dec_uninit(MSFilter *f) {
 	MSIMX6VPUH264DecData *d = (MSIMX6VPUH264DecData *)f->data;
-	
-	ms_free(d->bitstream);
-	if (d->sps) freemsg(d->sps);
-	if (d->pps) freemsg(d->pps);
-	if (d->yuv_msg) freemsg(d->yuv_msg);
-	ms_free(d);
-	VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(VPU_UNINIT, NULL, &decoder_uninit_callback, NULL));
+	VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(VPU_UNINIT, d, &decoder_uninit_callback, NULL));
 }
 
 /******************************************************************************

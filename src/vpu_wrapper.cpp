@@ -70,7 +70,7 @@ void* VpuCommand::Run(VpuWrapper *wrapper)
 			result = wrapper->VpuInit();
 			break;
 		case VPU_UNINIT:
-			wrapper->VpuUnInit();
+			result = wrapper->VpuUnInit();
 			break;
 		case OPEN_DECODER:
 			result = wrapper->VpuOpenDecoder((MSIMX6VPUH264DecData *) data);
@@ -85,10 +85,10 @@ void* VpuCommand::Run(VpuWrapper *wrapper)
 			result = wrapper->VpuInitEncoder((MSIMX6VPUH264EncData *) data);
 			break;
 		case FILL_ENCODER_BUFFER:
-			result = wrapper->VpuFillEncoderBuffer((MSIMX6VPUH264EncData *) data, (MSPicture *)extraParam);
+			result = wrapper->VpuFillEncoderBuffer((MSIMX6VPUH264EncData *) data, (MSPicture *) extraParam);
 			break;
 		case FILL_DECODER_BUFFER:
-			result = wrapper->VpuFillDecoderBuffer((MSIMX6VPUH264DecData *) data, (int&)extraParam);
+			result = wrapper->VpuFillDecoderBuffer((MSIMX6VPUH264DecData *) data);
 			break;
 		case CLOSE_DECODER:
 			wrapper->VpuCloseDecoder((MSIMX6VPUH264DecData *) data);
@@ -102,7 +102,7 @@ void* VpuCommand::Run(VpuWrapper *wrapper)
 			break;
 		case ENCODE_FRAME:
 			wrapper->encodeFrameCommandCount += 1;
-			result = wrapper->VpuEncodeFrame((MSIMX6VPUH264EncData *) data, (MSQueue *)extraParam);
+			result = wrapper->VpuEncodeFrame((MSIMX6VPUH264EncData *) data, (MSQueue *) extraParam);
 			break;
 		default:
 			return NULL;
@@ -134,6 +134,7 @@ void* run(VpuWrapper *wrapper)
 		VpuCommand *command = wrapper->VpuDequeueCommand();
 		if (command != NULL) {
 			command->Run(wrapper);
+			delete command;
 		} else {
 			ms_sleep(0.02);
 		}
@@ -142,7 +143,7 @@ void* run(VpuWrapper *wrapper)
 	ms_thread_exit(NULL);
 }
 
-VpuWrapper::VpuWrapper() : isVpuInitialized(FALSE), debugModeEnabled(TRUE), threadRunning(FALSE), encodeFrameCommandCount(0), decodeFrameCommandCount(0)
+VpuWrapper::VpuWrapper() : isVpuInitialized(FALSE), debugModeEnabled(TRUE), threadRunning(FALSE), encodeFrameCommandCount(0), decodeFrameCommandCount(0), encoderClosed(TRUE), decoderClosed(TRUE)
 {
 	if (debugModeEnabled) ms_message("[vpu_wrapper] vpu wrapper created");
 }
@@ -219,7 +220,7 @@ int VpuWrapper::VpuOpenDecoder(MSIMX6VPUH264DecData *d)
 	
 	if (d->handle != NULL) {
 		ms_warning("[vpu_wrapper] decoder already openned");
-		return;
+		return -2;
 	}
 	
 	d->bitstream_mem.size = STREAM_BUF_SIZE;
@@ -261,6 +262,7 @@ int VpuWrapper::VpuOpenDecoder(MSIMX6VPUH264DecData *d)
 	d->virt_buf_addr = d->bitstream_mem.virt_uaddr;
 	d->phy_buf_addr = d->bitstream_mem.phy_addr;
 	d->phy_ps_buf = d->ps_mem.phy_addr;
+	decoderClosed = FALSE;
 	if (debugModeEnabled) ms_message("[vpu_wrapper] vpu decoder openned");
 	return 0;
 	
@@ -283,7 +285,7 @@ int VpuWrapper::VpuOpenEncoder(MSIMX6VPUH264EncData* d)
 	
 	if (d->handle != NULL) {
 		ms_warning("[vpu_wrapper] encoder already openned");
-		return;
+		return -2;
 	}
 	
 	d->bitstream_mem.size = STREAM_BUF_SIZE;
@@ -328,6 +330,7 @@ int VpuWrapper::VpuOpenEncoder(MSIMX6VPUH264EncData* d)
 	}
 
 	d->handle = handle;
+	encoderClosed = FALSE;
 	if (debugModeEnabled) ms_message("[vpu_wrapper] vpu encoder openned");
 	return 0;
 	
@@ -421,7 +424,7 @@ int VpuWrapper::VpuInitDecoder(MSIMX6VPUH264DecData* d)
 int VpuWrapper::VpuInitEncoder(MSIMX6VPUH264EncData* d)
 {
 	RetCode ret;
-	int err;
+	int err = 0;
 	EncInitialInfo initinfo = {0};
 	EncHeaderParam header = {0};
 	
@@ -464,11 +467,21 @@ int VpuWrapper::VpuInitEncoder(MSIMX6VPUH264EncData* d)
 	return 0;
 }
 
+void free_framebuffer(IMX6VPUFrameBuffer *fb) {
+	if (fb->desc.virt_uaddr) {
+		IOFreeVirtMem(&fb->desc);
+	}
+	if (fb->desc.phy_addr) {
+		IOFreePhyMem(&fb->desc);
+	}
+	memset(&fb->desc, 0, sizeof(vpu_mem_desc));
+}
+
 int VpuWrapper::VpuAllocDecoderBuffer(MSIMX6VPUH264DecData* d)
 {
 	DecBufInfo bufinfo = {0};
 	RetCode ret;
-	int i, err;
+	int i = 0, err = 0;
 	
 	d->fbpool = (IMX6VPUFrameBuffer**) ms_malloc0(d->regfbcount * sizeof(IMX6VPUFrameBuffer *));
 	if (d->fbpool == NULL) {
@@ -476,9 +489,11 @@ int VpuWrapper::VpuAllocDecoderBuffer(MSIMX6VPUH264DecData* d)
 		return -1;
 	}
 	
-	d->fbs = ms_malloc0(d->regfbcount * sizeof(FrameBuffer));
+	d->fbs = (FrameBuffer*) ms_malloc0(d->regfbcount * sizeof(FrameBuffer));
 	if (d->fbs == NULL) {
 		ms_error("[vpu_wrapper] failed to allocate fb");
+		ms_free(d->fbpool);
+		d->fbpool = NULL;
 		return -1;
 	}
 		
@@ -491,7 +506,7 @@ int VpuWrapper::VpuAllocDecoderBuffer(MSIMX6VPUH264DecData* d)
 		err = IOGetPhyMem(&d->fbpool[i]->desc);
 		if (err) {
 			ms_error("[vpu_wrapper] error getting phymem for buffer %i", i);
-			return -1;
+			goto err;
 		}
 		
 		d->fbpool[i]->addrY = d->fbpool[i]->desc.phy_addr;
@@ -512,7 +527,7 @@ int VpuWrapper::VpuAllocDecoderBuffer(MSIMX6VPUH264DecData* d)
 		d->fbpool[i]->desc.virt_uaddr = IOGetVirtMem(&(d->fbpool[i]->desc));
 		if (d->fbpool[i]->desc.virt_uaddr <= 0) {
 			ms_error("[vpu_wrapper] error getting virt mem for buffer %i", i);
-			return -1;
+			goto err;
 		}
 	}
 	
@@ -526,19 +541,29 @@ int VpuWrapper::VpuAllocDecoderBuffer(MSIMX6VPUH264DecData* d)
 	ret = vpu_DecRegisterFrameBuffer(d->handle, d->fbs, d->regfbcount, d->stride, &bufinfo);
 	if (ret != RETCODE_SUCCESS) {
 		ms_error("[vpu_wrapper] vpu_DecRegisterFrameBuffer error: %d", ret);
-		return -1;
+		goto err;
 	}
 	
 	return 0;
+	
+err:
+	for (i = 0; i < d->regfbcount; i++) {
+		free_framebuffer(d->fbpool[i]);
+	}
+	ms_free(d->fbpool);
+	ms_free(d->fbs);
+	d->fbpool = NULL;
+	d->fbs = NULL;
+	return -1;
 }
 
 int VpuWrapper::VpuAllocEncoderBuffer(MSIMX6VPUH264EncData* d)
 {
 	RetCode ret;
-	int i, err;
-	int enc_fbwidth, enc_fbheight, enc_stride;
-	int src_fbwidth, src_fbheight, src_stride;
-	int width, height, stride;
+	int i = 0, err = 0;
+	int enc_fbwidth = 0, enc_fbheight = 0, enc_stride = 0;
+	int src_fbwidth = 0, src_fbheight = 0, src_stride = 0;
+	int width = 0, height = 0, stride = 0;
 	EncExtBufInfo extbufinfo = {0};
 	PhysicalAddress subSampBaseA = 0;
 	PhysicalAddress subSampBaseB = 0;
@@ -556,9 +581,11 @@ int VpuWrapper::VpuAllocEncoderBuffer(MSIMX6VPUH264EncData* d)
 		return -1;
 	}
 	
-	d->fbs = ms_malloc0(d->regfbcount * sizeof(FrameBuffer));
+	d->fbs = (FrameBuffer*) ms_malloc0(d->regfbcount * sizeof(FrameBuffer));
 	if (d->fbs == NULL) {
 		ms_error("[vpu_wrapper] failed to allocate fb");
+		ms_free(d->fbpool);
+		d->fbpool = NULL;
 		return -1;
 	}
 	
@@ -580,7 +607,7 @@ int VpuWrapper::VpuAllocEncoderBuffer(MSIMX6VPUH264EncData* d)
 		err = IOGetPhyMem(&d->fbpool[i]->desc);
 		if (err) {
 			ms_error("[vpu_wrapper] error getting phymem for buffer %i", i);
-			return -1;
+			goto err;
 		}
 		d->fbpool[i]->addrY = d->fbpool[i]->desc.phy_addr;
 		d->fbpool[i]->addrCb = d->fbpool[i]->addrY + (width * height);
@@ -598,7 +625,7 @@ int VpuWrapper::VpuAllocEncoderBuffer(MSIMX6VPUH264EncData* d)
 		d->fbpool[i]->desc.virt_uaddr = IOGetVirtMem(&(d->fbpool[i]->desc));
 		if (d->fbpool[i]->desc.virt_uaddr <= 0) {
 			ms_error("[vpu_wrapper] error getting virt mem for buffer %i", i);
-			return -1;
+			goto err;
 		}
 	}
 
@@ -608,10 +635,20 @@ int VpuWrapper::VpuAllocEncoderBuffer(MSIMX6VPUH264EncData* d)
 	ret = vpu_EncRegisterFrameBuffer(d->handle, d->fbs, d->regfbcount, enc_stride, src_stride, subSampBaseA, subSampBaseB, &extbufinfo);
 	if (ret != RETCODE_SUCCESS) {
 		ms_error("[vpu_wrapper] vpu_EncRegisterFrameBuffer error: %d", ret);
-		return -1;
+		goto err;
 	}
 		
 	return 0;
+	
+err:
+	for (i = 0; i < d->regfbcount; i++) {
+		free_framebuffer(d->fbpool[i]);
+	}
+	ms_free(d->fbpool);
+	ms_free(d->fbs);
+	d->fbpool = NULL;
+	d->fbs = NULL;
+	return -1;
 }
 
 static int msimx6vpu_h264_read(void *src, void *dest, size_t n) {
@@ -620,15 +657,16 @@ static int msimx6vpu_h264_read(void *src, void *dest, size_t n) {
 	return n;
 }
 
-int VpuWrapper::VpuFillDecoderBuffer(MSIMX6VPUH264DecData* d, int available)
+int VpuWrapper::VpuFillDecoderBuffer(MSIMX6VPUH264DecData* d)
 {
 	RetCode ret;
-	unsigned long space, target_addr;
-	PhysicalAddress pa_read_ptr, pa_write_ptr;
-	int size, room, nread;
+	unsigned long space = 0, target_addr = 0;
+	PhysicalAddress pa_read_ptr = 0, pa_write_ptr = 0;
+	int size = 0, room = 0, nread = 0;
 	bool_t eof = FALSE;
 	int remaining = 0;
 	uint8_t *bitstream = d->bitstream;
+	int available = d->frameSize;
 	
 	ret = vpu_DecGetBitstreamBuffer(d->handle, &pa_read_ptr, &pa_write_ptr, &space);
 	if (ret != RETCODE_SUCCESS) {
@@ -724,7 +762,7 @@ update:
 
 
 int VpuWrapper::VpuFillEncoderBuffer(MSIMX6VPUH264EncData *d, MSPicture *pic) {
-	int offset;
+	int offset = 0;
 	IMX6VPUFrameBuffer *framebuff;
 	MSVideoSize roi = {0};
 	uint8_t *dest_planes[3];
@@ -748,10 +786,10 @@ int VpuWrapper::VpuFillEncoderBuffer(MSIMX6VPUH264EncData *d, MSPicture *pic) {
 }
 
 static int frame_to_nalus(MSQueue *nalus, void *bitstream, int size, void *bitstream2, int size2) {
-	uint8_t *ptr = bitstream, *bs_end = bitstream + size;
-	int nal_size;
-	bool_t loop_needed, has_looped;
-	mblk_t *temp, *m;
+	uint8_t *ptr = (uint8_t*) bitstream, *bs_end = ((uint8_t*) bitstream) + size;
+	int nal_size = 0;
+	bool_t loop_needed = FALSE, has_looped = FALSE;
+	mblk_t *temp = NULL, *m = NULL;
 	int tmp_buffer_size = ms_get_payload_max_size() - 1;
 	
 	loop_needed = bitstream2 != NULL && size2 > 0;
@@ -776,8 +814,10 @@ static int frame_to_nalus(MSQueue *nalus, void *bitstream, int size, void *bitst
 				m->b_wptr += nal_size;
 				ms_queue_put(nalus, dupmsg(m));
 				freemsg(m);
+				m = NULL;
 			}
 			freemsg(temp);
+			temp = NULL;
 			temp = allocb(tmp_buffer_size, 0);
 			nal_size = 0;
 			
@@ -801,8 +841,8 @@ static int frame_to_nalus(MSQueue *nalus, void *bitstream, int size, void *bitst
 	} while (ptr < bs_end);
 	
 	if (!has_looped) {
-		bs_end = bitstream2 + size2;
-		ptr = bitstream2;
+		bs_end = ((uint8_t*) bitstream2) + size2;
+		ptr = (uint8_t*) bitstream2;
 		
 		do {
 			if (ptr >= bs_end) {
@@ -816,8 +856,10 @@ static int frame_to_nalus(MSQueue *nalus, void *bitstream, int size, void *bitst
 					m->b_wptr += nal_size;
 					ms_queue_put(nalus, dupmsg(m));
 					freemsg(m);
+					m = NULL;
 				}
 				freemsg(temp);
+				temp = NULL;
 				temp = allocb(tmp_buffer_size, 0);
 				nal_size = 0;
 				
@@ -846,8 +888,10 @@ static int frame_to_nalus(MSQueue *nalus, void *bitstream, int size, void *bitst
 			m->b_wptr += nal_size;
 			ms_queue_put(nalus, dupmsg(m));
 			freemsg(m);
+			m = NULL;
 		}
 		freemsg(temp);
+		temp = NULL;
 	} else {
 		if (nalus) {
 			m = allocb(nal_size, 0);
@@ -855,8 +899,10 @@ static int frame_to_nalus(MSQueue *nalus, void *bitstream, int size, void *bitst
 			m->b_wptr += nal_size;
 			ms_queue_put(nalus, dupmsg(m));
 			freemsg(m);
+			m = NULL;
 		}
 		freemsg(temp);
+		temp = NULL;
 	}
 	
 	return 0;
@@ -865,11 +911,11 @@ static int frame_to_nalus(MSQueue *nalus, void *bitstream, int size, void *bitst
 int VpuWrapper::VpuReadEncoderBuffer(MSIMX6VPUH264EncData* d, MSQueue *nalus)
 {
 	RetCode ret;
-	PhysicalAddress pa_read_ptr, pa_write_ptr;
-	uint32_t size, target_addr;
-	int space, room;
+	PhysicalAddress pa_read_ptr = 0, pa_write_ptr = 0;
+	long unsigned int size = 0, target_addr = 0;
+	int space = 0, room = 0;
 	
-	ret = vpu_EncGetBitstreamBuffer(d->handle, &pa_read_ptr, &pa_write_ptr, (uint32_t *)&size);
+	ret = vpu_EncGetBitstreamBuffer(d->handle, &pa_read_ptr, &pa_write_ptr, (long unsigned int *)&size);
 	if (ret != RETCODE_SUCCESS) {
 		ms_error("[vpu_wrapper] vpu_EncGetBitstreamBuffer error: %d", ret);
 		return -1;
@@ -906,8 +952,7 @@ static void frame_to_mblkt(MSIMX6VPUH264DecData *d, int index) {
 	MSVideoSize roi = {0};
 	uint8_t *src_planes[3];
 	int src_strides[3];
-	int offset;
-	int i;
+	int offset = 0;
 	
 	framebuff = d->fbpool[index];
 	
@@ -920,25 +965,15 @@ static void frame_to_mblkt(MSIMX6VPUH264DecData *d, int index) {
 	roi.height = d->outbuf.h;
 	
 	offset = framebuff->desc.virt_uaddr - framebuff->desc.phy_addr;
-	src_planes[0] = framebuff->addrY + offset;
-	src_planes[1] = framebuff->addrCb + offset;
-	src_planes[2] = framebuff->addrCr + offset;
+	src_planes[0] = (uint8_t *) framebuff->addrY + offset;
+	src_planes[1] = (uint8_t *) framebuff->addrCb + offset;
+	src_planes[2] = (uint8_t *) framebuff->addrCr + offset;
 	
 	src_strides[0] = framebuff->strideY;
 	src_strides[1] = framebuff->strideC;
 	src_strides[2] = framebuff->strideC;
 	
-	for (int i = 0; i < 3; i++) {
-		uint8_t *dst = d->outbuf.planes[i];
-		uint8_t *src = src_planes[i];
-		int h = d->picheight >> (( i > 0) ? 1 : 0);
-
-		for(int j = 0; j < h; j++) {
-			memcpy(dst, src, d->outbuf.strides[i]);
-			dst += d->outbuf.strides[i];
-			src += src_strides[(i == 0) ? 0 : 1];
-		}
-	}
+	ms_yuv_buf_copy(src_planes, src_strides, d->outbuf.planes, d->outbuf.strides, roi);
 }
 
 int VpuWrapper::VpuDecodeFrame(MSIMX6VPUH264DecData* d)
@@ -946,7 +981,7 @@ int VpuWrapper::VpuDecodeFrame(MSIMX6VPUH264DecData* d)
 	RetCode ret;
 	DecParam decparams = {0};
 	DecOutputInfo outinfos = {0};
-	int i, loop;
+	int i = 0, loop = 0;
 	
 	ret = vpu_DecStartOneFrame(d->handle, &decparams);
 	if (ret != RETCODE_SUCCESS) {
@@ -954,9 +989,11 @@ int VpuWrapper::VpuDecodeFrame(MSIMX6VPUH264DecData* d)
 		return -1;
 	}
 	
-	loop = 0;
 	while (vpu_IsBusy()) {
-		vpu_WaitForInt(20);
+		vpu_WaitForInt(100);
+		if (loop >= 20) {
+			vpu_SWReset(d->handle, 0);
+		}
 		loop++;
 	}
 	
@@ -1014,8 +1051,8 @@ int VpuWrapper::VpuEncodeFrame(MSIMX6VPUH264EncData* d, MSQueue *nalus)
 	RetCode ret;
 	EncParam params = {0};
 	EncOutputInfo outinfo = {0};
-	mblk_t *m;
-	int loop;
+	mblk_t *m = NULL;
+	int loop = 0;
 	
 	params.sourceFrame = &d->fbs[d->src_buffer_index];
 	if (d->generate_keyframe) {
@@ -1029,9 +1066,11 @@ int VpuWrapper::VpuEncodeFrame(MSIMX6VPUH264EncData* d, MSQueue *nalus)
 		return -1;
 	}
 	
-	loop = 0;
 	while (vpu_IsBusy()) {
-		vpu_WaitForInt(20);
+		vpu_WaitForInt(100);
+		if (loop >= 20) {
+			vpu_SWReset(d->handle, 0);
+		}
 		loop++;
 	}
 	
@@ -1056,20 +1095,10 @@ int VpuWrapper::VpuEncodeFrame(MSIMX6VPUH264EncData* d, MSQueue *nalus)
 	return VpuReadEncoderBuffer(d, nalus);
 }
 
-void free_framebuffer(IMX6VPUFrameBuffer *fb) {
-	if (fb->desc.virt_uaddr) {
-		IOFreeVirtMem(&fb->desc);
-	}
-	if (fb->desc.phy_addr) {
-		IOFreePhyMem(&fb->desc);
-	}
-	memset(&fb->desc, 0, sizeof(vpu_mem_desc));
-}
-
 void VpuWrapper::VpuCloseDecoder(MSIMX6VPUH264DecData* d)
 {
 	RetCode ret;
-	int i;
+	int i = 0;
 	
 	ret = vpu_DecClose(d->handle);
 	if (ret == RETCODE_FRAME_NOT_COMPLETE) {
@@ -1087,29 +1116,32 @@ void VpuWrapper::VpuCloseDecoder(MSIMX6VPUH264DecData* d)
 		IOFreePhyMem(&d->slice_mem);
 	}
 	
-	if (d->fbpool) {
-		for (i = 0; i < d->regfbcount; i++) {
-			if (debugModeEnabled) ms_warning("[vpu_wrapper] dec freed buffer %i", i);
-			free_framebuffer(d->fbpool[i]);
+	if (d->configure_done) {
+		if (d->fbpool) {
+			for (i = 0; i < d->regfbcount; i++) {
+				if (debugModeEnabled) ms_warning("[vpu_wrapper] dec freed buffer %i", i);
+				free_framebuffer(d->fbpool[i]);
+			}
 		}
-	}
-	if (d->fbs) {
-		ms_free(d->fbs);
-		d->fbs = NULL;
-	}
-	if (d->fbpool) {
-		ms_free(d->fbpool);
-		d->fbpool = NULL;
+		if (d->fbs) {
+			ms_free(d->fbs);
+			d->fbs = NULL;
+		}
+		if (d->fbpool) {
+			ms_free(d->fbpool);
+			d->fbpool = NULL;
+		}
 	}
 	
 	d->handle = NULL;
+	decoderClosed = TRUE;
 	if (debugModeEnabled) ms_message("[vpu_wrapper] vpu decoder closed");
 }
 
 void VpuWrapper::VpuCloseEncoder(MSIMX6VPUH264EncData* d)
 {
 	RetCode ret;
-	int i;
+	int i = 0;
 	
 	ret = vpu_EncClose(d->handle);
 	if (ret == RETCODE_FRAME_NOT_COMPLETE) {
@@ -1125,36 +1157,45 @@ void VpuWrapper::VpuCloseEncoder(MSIMX6VPUH264EncData* d)
 		IOFreePhyMem(&d->bitstream_mem);
 	}
 	
-	if (d->fbpool) {
-		for (i = 0; i < d->regfbcount; i++) {
-			if (debugModeEnabled) ms_warning("[vpu_wrapper] enc freed buffer %i", i);
-			free_framebuffer(d->fbpool[i]);
+	if (d->configure_done) {
+		if (d->fbpool) {
+			for (i = 0; i < d->regfbcount; i++) {
+				if (debugModeEnabled) ms_warning("[vpu_wrapper] enc freed buffer %i", i);
+				free_framebuffer(d->fbpool[i]);
+			}
 		}
-	}
-	if (d->fbs) {
-		ms_free(d->fbs);
-		d->fbs = NULL;
-	}
-	if (d->fbpool) {
-		ms_free(d->fbpool);
-		d->fbpool = NULL;
+		if (d->fbs) {
+			ms_free(d->fbs);
+			d->fbs = NULL;
+		}
+		if (d->fbpool) {
+			ms_free(d->fbpool);
+			d->fbpool = NULL;
+		}
 	}
 	
 	d->handle = NULL;
+	encoderClosed = TRUE;
 	if (debugModeEnabled) ms_message("[vpu_wrapper] vpu encoder closed");
 }
 
-void VpuWrapper::VpuUnInit()
+int VpuWrapper::VpuUnInit()
 {
 	if (!isVpuInitialized) {
 		if (debugModeEnabled) ms_warning("[vpuwrapper] VPU already uninitialized");
-		return;
+		return -1;
+	}
+	
+	if (!decoderClosed || !encoderClosed) {
+		if (debugModeEnabled) ms_warning("[vpuwrapper] Encoder or decoder not closed yet");
+		return -2;
 	}
 	
 	vpu_UnInit();
 	isVpuInitialized = FALSE;
 	if (debugModeEnabled) ms_message("[vpu_wrapper] UnInit done");
 	ms_message("[vpu_wrapper] %i decode frame commands, %i encode frame commands", decodeFrameCommandCount, encodeFrameCommandCount);
+	return 0;
 }
 
 VpuWrapper::~VpuWrapper()
