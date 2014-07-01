@@ -63,7 +63,7 @@ extern  "C"
 		unsigned int packet_num;
 		MSVideoStarter starter;
 		int mode;
-		MSQueue nalus;
+		MSQueue *nalus;
 		bool_t shutdown;
 	} MSIMX6VPUH264EncData;
 

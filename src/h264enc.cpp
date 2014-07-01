@@ -23,24 +23,13 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 	{ required_bitrate, bitrate_limit, { MS_VIDEO_SIZE_ ## resolution ## _W, MS_VIDEO_SIZE_ ## resolution ## _H }, fps, NULL }
 
 static const MSVideoConfiguration h264_conf_list[] = {
-#if defined(ANDROID) || (TARGET_OS_IPHONE == 1) || defined(__arm__)
-	MS_H264_CONF( 170000,  512000, VGA,  15),
-	MS_H264_CONF( 128000,  170000, QVGA, 12),
-	MS_H264_CONF(  64000,  128000, QCIF, 10),
-	MS_H264_CONF(      0,   64000, QCIF,  7)
-#else
-	MS_H264_CONF(1024000, 1536000, SVGA, 25),
-	MS_H264_CONF( 512000, 1024000,  VGA, 25),
-	MS_H264_CONF( 256000,  512000,  VGA, 15),
-	MS_H264_CONF( 170000,  256000, QVGA, 15),
-	MS_H264_CONF( 128000,  170000, QCIF, 10),
-	MS_H264_CONF(  64000,  128000, QCIF,  7),
-	MS_H264_CONF(      0,   64000, QCIF,  5)
-#endif
+	MS_H264_CONF( 1024000,  1536000, VGA, 15),
+	MS_H264_CONF( 256000,   512000, QVGA, 12),
+	MS_H264_CONF( 128000,   256000, QCIF, 10),
+	MS_H264_CONF(      0,   64000,  QCIF,  7)
 };
 
 static const MSVideoConfiguration multicore_h264_conf_list[] = {
-#if defined(ANDROID) || (TARGET_OS_IPHONE == 1) || defined(__arm__)
 	MS_H264_CONF(2048000, 3072000,       UXGA, 15),
 	MS_H264_CONF(1024000, 1536000, SXGA_MINUS, 15),
 	MS_H264_CONF( 750000, 1024000,        XGA, 15),
@@ -50,35 +39,29 @@ static const MSVideoConfiguration multicore_h264_conf_list[] = {
 	MS_H264_CONF( 128000,   170000,      QCIF, 10),
 	MS_H264_CONF(  64000,   128000,      QCIF,  7),
 	MS_H264_CONF(      0,    64000,      QCIF,  5)
-#else
-	MS_H264_CONF(1536000,  2560000, SXGA_MINUS, 15),
-	MS_H264_CONF(1536000,  2560000,       720P, 15),
-	MS_H264_CONF(1024000,  1536000,        XGA, 15),
-	MS_H264_CONF( 512000,  1024000,       SVGA, 15),
-	MS_H264_CONF( 256000,   512000,        VGA, 15),
-	MS_H264_CONF( 170000,   256000,       QVGA, 15),
-	MS_H264_CONF( 128000,   170000,       QCIF, 10),
-	MS_H264_CONF(  64000,   128000,       QCIF,  7),
-	MS_H264_CONF(      0,    64000,       QCIF,  5)
-#endif
 };
 
 void encoder_open_callback(void *v, int result) {
 	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData *)v;
 	ms_message("[msimx6vpu_h264_enc] open callback with result %i", result);
+	
+	if (result < 0) {
+		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(OPEN_ENCODER, d, &encoder_open_callback, NULL));
+	}
 }
 
 void encoder_init_callback(void *v, int result) {
 	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData *)v;
+	
+	ms_filter_lock(d->filter);
 	d->init_command_queued = FALSE;
 	if (result == 0) {
-		ms_filter_lock(d->filter);
 		d->configure_done = TRUE;
-		ms_filter_unlock(d->filter);
 		ms_message("[msimx6vpu_h264_enc] encoder initialized");
 	} else if (result != -3) {
 		ms_error("[msimx6vpu_h264_enc] failed to initialize the encoder");
 	}
+	ms_filter_unlock(d->filter);
 }
 
 void encoder_fill_buffer_callback(void *v, int result) {
@@ -87,19 +70,24 @@ void encoder_fill_buffer_callback(void *v, int result) {
 
 void encoder_encode_frame_callback(void *v, int result) {
 	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData *)v;
-	uint32_t ts = d->filter->ticker->time * 90LL;
+	uint32_t ts = 0;
 	
 	ms_filter_lock(d->filter);
 	d->encode_frame_command_queued = FALSE;
-	if (result >= 0) {
-		if (!ms_queue_empty(&d->nalus)) {
-			rfc3984_pack(d->packer, &d->nalus, d->filter->outputs[0], ts);
-			if (d->packet_num == 0) {
-				ms_message("[msimx6vpu_h264_enc] first frame encoded");
-				ms_video_starter_first_frame(&d->starter, d->filter->ticker->time);
-			}
-			d->packet_num++;
+	
+	if (result < 0) {
+		ms_filter_unlock(d->filter);
+		return;
+	}
+	
+	ts = d->filter->ticker->time * 90LL;
+	if (!ms_queue_empty(d->nalus)) {
+		rfc3984_pack(d->packer, d->nalus, d->filter->outputs[0], ts);
+		if (d->packet_num == 0) {
+			ms_message("[msimx6vpu_h264_enc] first frame encoded");
+			ms_video_starter_first_frame(&d->starter, d->filter->ticker->time);
 		}
+		d->packet_num++;
 	}
 	ms_filter_unlock(d->filter);
 }
@@ -140,6 +128,7 @@ static void msimx6vpu_h264_enc_init(MSFilter *f) {
 	}
 	
 	d->handle = NULL;
+	d->nalus = NULL;
 	d->configure_done = FALSE;
 	d->packet_num = 0;
 	d->packer = NULL;
@@ -165,6 +154,7 @@ static void msimx6vpu_h264_enc_preprocess(MSFilter *f) {
 	rfc3984_set_mode(d->packer, d->mode);
 	rfc3984_enable_stap_a(d->packer, FALSE);
 	ms_video_starter_init(&d->starter);
+	d->nalus = ms_queue_new(f, NULL, NULL, NULL);
 }
 
 static void msimx6vpu_h264_enc_process(MSFilter *f) {
@@ -172,13 +162,14 @@ static void msimx6vpu_h264_enc_process(MSFilter *f) {
 	MSPicture pic;
 	mblk_t *im;
 	
+	ms_filter_lock(f);
 	if (!d->handle) {
 		ms_error("[msimx6vpu_h264_enc] encoder not openned yet");
 		ms_queue_flush(f->inputs[0]);
+		ms_filter_unlock(f);
 		return;
 	}
 	
-	ms_filter_lock(f);
 	while ((im = ms_queue_get(f->inputs[0])) != NULL) {
 		if (ms_yuv_buf_init_from_mblk(&pic, im) == 0) {
 			/* send I frame 2 seconds and 4 seconds after the beginning */
@@ -205,8 +196,7 @@ static void msimx6vpu_h264_enc_process(MSFilter *f) {
 	
 	if (d->configure_done && !d->encode_frame_command_queued) {
 		d->encode_frame_command_queued = TRUE;
-		ms_queue_init(&d->nalus);
-		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(ENCODE_FRAME, d, &encoder_encode_frame_callback, &d->nalus));
+		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(ENCODE_FRAME, d, &encoder_encode_frame_callback, d->nalus));
 	}
 	ms_filter_unlock(f);
 }
@@ -218,6 +208,7 @@ static void msimx6vpu_h264_enc_postprocess(MSFilter *f) {
 	rfc3984_destroy(d->packer);
 	d->packer = NULL;
 	d->shutdown = TRUE;
+	ms_queue_destroy(d->nalus);
 	VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(CLOSE_ENCODER, d, &encoder_close_callback, NULL));
 }
 

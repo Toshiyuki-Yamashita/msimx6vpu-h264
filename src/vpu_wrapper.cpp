@@ -20,7 +20,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "vpu_wrapper.h"
 
 #define DEC_PS_SAVE_SIZE	0x080000
-#define STREAM_BUF_SIZE		0x200000
+#define STREAM_BUF_SIZE		0x100000
 #define KBPS				1000
 
 VpuCommand::VpuCommand(VpuCommandEnum cmd, void *d, VpuCommandCallback cb, void *param)
@@ -116,7 +116,6 @@ void* VpuCommand::Run(VpuWrapper *wrapper)
 
 VpuCommand::~VpuCommand()
 {
-
 }
 
 VpuWrapper* VpuWrapper::Instance()
@@ -136,7 +135,7 @@ void* run(VpuWrapper *wrapper)
 			command->Run(wrapper);
 			delete command;
 		} else {
-			ms_sleep(0.02);
+			ms_sleep(0.05);
 		}
 	}
 	if (wrapper->debugModeEnabled) ms_message("[vpu_wrapper] thread loop has stopped");
@@ -319,7 +318,10 @@ int VpuWrapper::VpuOpenEncoder(MSIMX6VPUH264EncData* d)
 	oparam.userGamma = (0.75*32768);
 	oparam.RcIntervalMode = 1;
 	oparam.EncStdParam.avcParam.paraset_refresh_en = 1;
-	oparam.gopSize = 1; // TODO
+	oparam.EncStdParam.avcParam.avc_constrainedIntraPredFlag = 1;
+	oparam.EncStdParam.avcParam.avc_disableDeblk = 1;
+	oparam.EncStdParam.avcParam.interview_en = 1;
+	oparam.gopSize = d->vconf.fps * 10;
 	oparam.userQpMin = -1;
 	oparam.userQpMax = -1;
 	
@@ -339,6 +341,7 @@ err0:
 err1:
 	IOFreePhyMem(&d->bitstream_mem);
 err:
+	d->handle = NULL;
 	return -1;
 }
 
@@ -1051,13 +1054,37 @@ int VpuWrapper::VpuEncodeFrame(MSIMX6VPUH264EncData* d, MSQueue *nalus)
 	RetCode ret;
 	EncParam params = {0};
 	EncOutputInfo outinfo = {0};
-	mblk_t *m = NULL;
+	EncParamSet header = {0};
 	int loop = 0;
 	
 	params.sourceFrame = &d->fbs[d->src_buffer_index];
+	params.enableAutoSkip = 1;
 	if (d->generate_keyframe) {
 		params.forceIPicture = 1;
 		d->generate_keyframe = FALSE;
+		if (debugModeEnabled) ms_message("[vpu_wrapper] asking for I frame");
+		
+		/*ret = vpu_EncGiveCommand(d->handle, ENC_GET_SPS_RBSP, &header);
+		if (ret != RETCODE_SUCCESS) {
+			ms_error("[vpu_wrapper] vpu_EncGiveCommand ENC_GET_SPS_RBSP failed with error: %d", ret);
+		} else {
+			if (debugModeEnabled) ms_message("[vpu_wrapper] SPS added");
+			mblk_t *m = allocb(header.size, 0);
+			memcpy(m->b_wptr, header.paraSet, header.size);
+			m->b_wptr += header.size;
+			if (nalus) ms_queue_put(nalus, dupmsg(m));
+		}
+		
+		ret = vpu_EncGiveCommand(d->handle, ENC_GET_PPS_RBSP, &header);
+		if (ret != RETCODE_SUCCESS) {
+			ms_error("[vpu_wrapper] vpu_EncGiveCommand ENC_GET_PPS_RBSP failed with error: %d", ret);
+		} else {
+			if (debugModeEnabled) ms_message("[vpu_wrapper] PPS added");
+			mblk_t *m = allocb(header.size, 0);
+			memcpy(m->b_wptr, header.paraSet, header.size);
+			m->b_wptr += header.size;
+			if (nalus) ms_queue_put(nalus, dupmsg(m));
+		}*/
 	}
 		
 	ret = vpu_EncStartOneFrame(d->handle, &params);
