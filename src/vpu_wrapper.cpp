@@ -318,9 +318,9 @@ int VpuWrapper::VpuOpenEncoder(MSIMX6VPUH264EncData* d)
 	oparam.userGamma = (0.75*32768);
 	oparam.RcIntervalMode = 1;
 	oparam.EncStdParam.avcParam.paraset_refresh_en = 1;
-	oparam.EncStdParam.avcParam.avc_constrainedIntraPredFlag = 1;
+	/*oparam.EncStdParam.avcParam.avc_constrainedIntraPredFlag = 1;
 	oparam.EncStdParam.avcParam.avc_disableDeblk = 1;
-	oparam.EncStdParam.avcParam.interview_en = 1;
+	oparam.EncStdParam.avcParam.interview_en = 1;*/
 	oparam.gopSize = d->vconf.fps * 10;
 	oparam.userQpMin = -1;
 	oparam.userQpMax = -1;
@@ -663,7 +663,8 @@ static int msimx6vpu_h264_read(void *src, void *dest, size_t n) {
 int VpuWrapper::VpuFillDecoderBuffer(MSIMX6VPUH264DecData* d)
 {
 	RetCode ret;
-	unsigned long space = 0, target_addr = 0;
+	unsigned long target_addr = 0;
+	uint32_t space = 0;
 	PhysicalAddress pa_read_ptr = 0, pa_write_ptr = 0;
 	int size = 0, room = 0, nread = 0;
 	bool_t eof = FALSE;
@@ -678,7 +679,7 @@ int VpuWrapper::VpuFillDecoderBuffer(MSIMX6VPUH264DecData* d)
 	}
 
 	if (space <= 0) {
-		ms_warning("[msimx6vpu_h264_dec] space %lu <= 0", space);
+		ms_warning("[msimxvpu_h264_dec] space %lu <= 0", space);
 		return 0;
 	} else {
 		size = ((space >> 9) << 9);
