@@ -314,16 +314,16 @@ int VpuWrapper::VpuOpenEncoder(MSIMX6VPUH264EncData* d)
 	oparam.ringBufferEnable = 1;
 	oparam.chromaInterleave = 0;
 	oparam.slicemode = slicemode;
-	oparam.rcIntraQp = -1;
+	oparam.rcIntraQp = -1; // Quantization parameter (-1 is for auto value, else value must be between 0-51)
 	oparam.userGamma = (0.75*32768);
-	oparam.RcIntervalMode = 1;
-	oparam.EncStdParam.avcParam.paraset_refresh_en = 1;
-	/*oparam.EncStdParam.avcParam.avc_constrainedIntraPredFlag = 1;
-	oparam.EncStdParam.avcParam.avc_disableDeblk = 1;
-	oparam.EncStdParam.avcParam.interview_en = 1;*/
-	oparam.gopSize = d->vconf.fps * 10;
-	oparam.userQpMin = -1;
-	oparam.userQpMax = -1;
+	oparam.RcIntervalMode = 1; // Encoder rate control at frame level
+	oparam.EncStdParam.avcParam.paraset_refresh_en = 1; // Auto insert of SPS/PPS
+	oparam.EncStdParam.avcParam.avc_constrainedIntraPredFlag = 1;
+	oparam.EncStdParam.avcParam.avc_disableDeblk = 0; // Deblocking, 1 to disable, 0 to enable
+	oparam.EncStdParam.avcParam.interview_en = 1;
+	oparam.gopSize = d->vconf.fps * 10; // One I frame every ten seconds
+	oparam.userQpMin = -1; // Quantization step, -1 for default minimum value, else 0-51
+	oparam.userQpMax = -1; // Quantization step, -1 for default maxmimum value, else 0-51
 	
 	ret = vpu_EncOpen(&handle, &oparam);
 	if (ret != RETCODE_SUCCESS) {
