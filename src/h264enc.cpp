@@ -24,7 +24,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 static const MSVideoConfiguration h264_conf_list[] = {
 	MS_H264_CONF( 1024000,  1536000, VGA, 15),
-	MS_H264_CONF( 256000,   512000, QVGA, 12),
+	MS_H264_CONF( 512000,   1024000, CIF, 12),
+	MS_H264_CONF( 256000,   512000, QVGA, 10),
 	MS_H264_CONF( 128000,   256000, QCIF, 10),
 	MS_H264_CONF(      0,   64000,  QCIF,  7)
 };

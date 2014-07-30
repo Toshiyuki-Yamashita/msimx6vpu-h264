@@ -20,7 +20,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "vpu_wrapper.h"
 
 #define DEC_PS_SAVE_SIZE	0x080000
-#define STREAM_BUF_SIZE		0x100000
+#define STREAM_BUF_SIZE		0x800000
 #define KBPS				1000
 
 VpuCommand::VpuCommand(VpuCommandEnum cmd, void *d, VpuCommandCallback cb, void *param)
@@ -310,13 +310,14 @@ int VpuWrapper::VpuOpenEncoder(MSIMX6VPUH264EncData* d)
 	oparam.picWidth = d->vconf.vsize.width;
 	oparam.picHeight = d->vconf.vsize.height;
 	oparam.frameRateInfo = (int)d->vconf.fps;
-	oparam.bitRate = d->vconf.required_bitrate / KBPS;
+	oparam.bitRate = d->vconf.bitrate_limit / KBPS;
 	oparam.ringBufferEnable = 1;
 	oparam.chromaInterleave = 0;
 	oparam.slicemode = slicemode;
 	oparam.rcIntraQp = -1; // Quantization parameter (-1 is for auto value, else value must be between 0-51)
 	oparam.userGamma = (0.75*32768);
 	oparam.RcIntervalMode = 1; // Encoder rate control at frame level
+	oparam.avcIntra16x16OnlyModeEnable = 0;
 	oparam.EncStdParam.avcParam.paraset_refresh_en = 1; // Auto insert of SPS/PPS
 	oparam.EncStdParam.avcParam.avc_constrainedIntraPredFlag = 1;
 	oparam.EncStdParam.avcParam.avc_disableDeblk = 0; // Deblocking, 1 to disable, 0 to enable
@@ -1007,8 +1008,8 @@ int VpuWrapper::VpuDecodeFrame(MSIMX6VPUH264DecData* d)
 		return -2;
 	}
 	
-	if (outinfos.decodingSuccess == 0) {
-		ms_warning("[vpu_wrapper] incomplete finish of decoding");
+	if (outinfos.decodingSuccess != 1) {
+		if (outinfos.decodingSuccess == 0) ms_warning("[vpu_wrapper] incomplete finish of decoding");
 		return -2;
 	}
 	if (outinfos.notSufficientPsBuffer) {
