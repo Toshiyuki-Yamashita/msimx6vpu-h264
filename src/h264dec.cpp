@@ -37,12 +37,12 @@ static bool_t check_sps_change(MSIMX6VPUH264DecData *d, mblk_t *sps){
 	if (d->sps){
 		ret=(msgdsize(sps)!=msgdsize(d->sps)) || (memcmp(d->sps->b_rptr,sps->b_rptr,msgdsize(sps))!=0);
 		if (ret) {
-			ms_message("SPS changed ! %i,%i",(int)msgdsize(sps),(int)msgdsize(d->sps));
+			ms_message("[msimx6vpu_h264_dec] SPS changed ! %i,%i",(int)msgdsize(sps),(int)msgdsize(d->sps));
 			update_sps(d,sps);
 			update_pps(d,NULL);
 		}
 	} else {
-		ms_message("Receiving first SPS");
+		ms_message("[msimx6vpu_h264_dec] Receiving first SPS");
 		update_sps(d,sps);
 	}
 	return ret;
@@ -53,18 +53,19 @@ static bool_t check_pps_change(MSIMX6VPUH264DecData *d, mblk_t *pps){
 	if (d->pps){
 		ret=(msgdsize(pps)!=msgdsize(d->pps)) || (memcmp(d->pps->b_rptr,pps->b_rptr,msgdsize(pps))!=0);
 		if (ret) {
-			ms_message("PPS changed ! %i,%i",(int)msgdsize(pps),(int)msgdsize(d->pps));
+			ms_message("[msimx6vpu_h264_dec] PPS changed ! %i,%i",(int)msgdsize(pps),(int)msgdsize(d->pps));
 			update_pps(d,pps);
 		}
 	}else {
-		ms_message("Receiving first PPS");
+		ms_message("[msimx6vpu_h264_dec] Receiving first PPS");
 		update_pps(d,pps);
 	}
 	return ret;
 }
 
 
-static void enlarge_bitstream(MSIMX6VPUH264DecData *d, int new_size){
+static void enlarge_bitstream(MSIMX6VPUH264DecData *d, int new_size) {
+	ms_warning("[msimx6vpu_h264_dec] increasing bitstream size from %i to %i", d->bitstream_size, new_size);
 	d->bitstream_size = new_size;
 	d->bitstream = (uint8_t*) ms_realloc(d->bitstream, d->bitstream_size);
 }
@@ -199,7 +200,7 @@ static void msimx6vpu_h264_dec_init(MSFilter *f) {
 	d->yuv_msg = NULL;
 	d->frameSize = 0;
 	    
-	d->bitstream_size = 65536;
+	d->bitstream_size = 65536 * 4;
 	d->bitstream = (uint8_t*) ms_malloc0(d->bitstream_size);
 	d->handle = NULL;
 	d->first_image_decoded = FALSE;
