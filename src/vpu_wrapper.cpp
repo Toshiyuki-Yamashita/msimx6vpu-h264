@@ -318,7 +318,7 @@ int VpuWrapper::VpuOpenEncoder(MSIMX6VPUH264EncData* d)
 	oparam.userGamma = (0.75*32768);
 	oparam.RcIntervalMode = 1; // Encoder rate control at frame level
 	oparam.avcIntra16x16OnlyModeEnable = 0;
-	oparam.EncStdParam.avcParam.paraset_refresh_en = 1; // Auto insert of SPS/PPS
+	oparam.EncStdParam.avcParam.paraset_refresh_en = 0; // Auto insert of SPS/PPS
 	oparam.EncStdParam.avcParam.avc_constrainedIntraPredFlag = 1;
 	oparam.EncStdParam.avcParam.avc_disableDeblk = 0; // Deblocking, 1 to disable, 0 to enable
 	oparam.EncStdParam.avcParam.interview_en = 1;
@@ -454,19 +454,25 @@ int VpuWrapper::VpuInitEncoder(MSIMX6VPUH264EncData* d)
 	}
 
 	header.headerType = SPS_RBSP;
+	header.buf = d->sps->desc.phy_addr;
+	header.size = d->sps->desc.size;
 	ret = vpu_EncGiveCommand(d->handle, ENC_PUT_AVC_HEADER, &header);
 	if (ret != RETCODE_SUCCESS) {
 		ms_error("[vpu_wrapper] vpu_EncGiveCommand ENC_PUT_AVC_HEADER SPS_RBSP error: %i", ret);
 		return -1;
 	}
+	d->sps->desc.size = header.size;
 	
 	memset(&header, 0, sizeof(EncHeaderParam));
 	header.headerType = PPS_RBSP;
+	header.buf = d->pps->desc.phy_addr;
+	header.size = d->pps->desc.size;
 	ret = vpu_EncGiveCommand(d->handle, ENC_PUT_AVC_HEADER, &header);
 	if (ret != RETCODE_SUCCESS) {
 		ms_error("[vpu_wrapper] vpu_EncGiveCommand ENC_PUT_AVC_HEADER PPS_RBSP error: %i", ret);
 		return -1;
 	}
+	d->pps->desc.size = header.size;
 	
 	return 0;
 }
@@ -641,6 +647,35 @@ int VpuWrapper::VpuAllocEncoderBuffer(MSIMX6VPUH264EncData* d)
 		ms_error("[vpu_wrapper] vpu_EncRegisterFrameBuffer error: %d", ret);
 		goto err;
 	}
+	
+	d->sps = (IMX6VPUFrameBuffer*) ms_malloc0(sizeof(IMX6VPUFrameBuffer));
+	memset(&(d->sps->desc), 0, sizeof(vpu_mem_desc));
+	d->sps->desc.size = 32;
+	err = IOGetPhyMem(&d->sps->desc);
+	if (err) {
+		ms_error("[vpu_wrapper] error getting phymem for SPS buffer");
+		goto err;
+	}
+	d->sps->desc.virt_uaddr = IOGetVirtMem(&(d->sps->desc));
+	if (d->sps->desc.virt_uaddr <= 0) {
+		ms_error("[vpu_wrapper] error getting virt mem for SPS buffer");
+		goto err;
+	}
+	
+	d->pps = (IMX6VPUFrameBuffer*) ms_malloc0(sizeof(IMX6VPUFrameBuffer));
+	memset(&(d->pps->desc), 0, sizeof(vpu_mem_desc));
+	d->pps->desc.size = 32;
+	err = IOGetPhyMem(&d->pps->desc);
+	if (err) {
+		ms_error("[vpu_wrapper] error getting phymem for PPS buffer");
+		goto err;
+	}
+	d->pps->desc.virt_uaddr = IOGetVirtMem(&(d->pps->desc));
+	if (d->pps->desc.virt_uaddr <= 0) {
+		ms_error("[vpu_wrapper] error getting virt mem for PPS buffer");
+		goto err;
+	}
+	
 		
 	return 0;
 	
@@ -1110,7 +1145,20 @@ int VpuWrapper::VpuEncodeFrame(MSIMX6VPUH264EncData* d, MSQueue *nalus)
 	}
 	
 	if (outinfo.picType == 0) {
-		if (debugModeEnabled) ms_message("[vpu_wrapper] I frame sent with %i slices", outinfo.numOfSlices);
+		if (debugModeEnabled) ms_message("[vpu_wrapper] I frame ready with %i slices", outinfo.numOfSlices);
+		
+		// Add SPS and PPS before the I Frame
+		mblk_t *m = allocb(d->sps->desc.size, 0);
+		memcpy(m->b_wptr, d->sps->desc.virt_uaddr, d->sps->desc.size);
+		m->b_wptr += d->sps->desc.size;
+		if (nalus) ms_queue_put(nalus, dupmsg(m));
+		if (debugModeEnabled) ms_message("[vpu_wrapper] SPS added");
+
+		m = allocb(d->pps->desc.size, 0);
+		memcpy(m->b_wptr, d->pps->desc.virt_uaddr, d->pps->desc.size);
+		m->b_wptr += d->pps->desc.size;
+		if (nalus) ms_queue_put(nalus, dupmsg(m));
+		if (debugModeEnabled) ms_message("[vpu_wrapper] PPS added");
 	}
 	if (outinfo.bitstreamWrapAround) {
 		if (debugModeEnabled) ms_warning("[vpu_wrapper] encoder reports a buffer wrap around!");
@@ -1184,6 +1232,10 @@ void VpuWrapper::VpuCloseEncoder(MSIMX6VPUH264EncData* d)
 	if (d->handle != NULL) {
 		IOFreeVirtMem(&d->bitstream_mem);
 		IOFreePhyMem(&d->bitstream_mem);
+		IOFreeVirtMem(&d->sps->desc);
+		IOFreePhyMem(&d->sps->desc);
+		IOFreeVirtMem(&d->pps->desc);
+		IOFreePhyMem(&d->pps->desc);
 	}
 	
 	if (d->configure_done) {

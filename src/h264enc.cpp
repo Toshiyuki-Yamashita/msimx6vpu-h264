@@ -130,6 +130,8 @@ static void msimx6vpu_h264_enc_init(MSFilter *f) {
 	
 	d->handle = NULL;
 	d->nalus = NULL;
+	d->sps = NULL;
+	d->pps = NULL;
 	d->configure_done = FALSE;
 	d->generate_keyframe = FALSE;
 	d->packet_num = 0;
