@@ -52,8 +52,8 @@ extern  "C"
 		int minfbcount;
 		FrameBuffer *fbs;
 		IMX6VPUFrameBuffer **fbpool;
-		IMX6VPUFrameBuffer *sps;
-		IMX6VPUFrameBuffer *pps;
+		mblk_t *sps_mblkt;
+		mblk_t *pps_mblkt;
 		MSFilter *filter;
 		bool_t encode_frame_command_queued;
 		bool_t init_command_queued;

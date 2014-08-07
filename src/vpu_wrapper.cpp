@@ -64,7 +64,7 @@ const char* VpuCommand::ToString()
 void* VpuCommand::Run(VpuWrapper *wrapper)
 {
 	int result = -10;
-	if (wrapper->debugModeEnabled) ms_message("[vpu_wrapper] running command %s", ToString());
+// 	if (wrapper->debugModeEnabled) ms_message("[vpu_wrapper] running command %s", ToString());
 	switch (command) {
 		case VPU_INIT:
 			result = wrapper->VpuInit();
@@ -151,7 +151,7 @@ void VpuWrapper::VpuQueueCommand(VpuCommand *command)
 {
 	ms_mutex_lock(&mutex);
 	commandQueue.push(command);
-	if (debugModeEnabled) ms_message("[vpu_wrapper] command queued %s", command->ToString());
+// 	if (debugModeEnabled) ms_message("[vpu_wrapper] command queued %s", command->ToString());
 	
 	if (!threadRunning) {
 		threadRunning = TRUE;
@@ -172,7 +172,7 @@ VpuCommand* VpuWrapper::VpuDequeueCommand()
 	command = commandQueue.front();
 	commandQueue.pop();
 	ms_mutex_unlock(&mutex);
-	if (debugModeEnabled) ms_message("[vpu_wrapper] command dequeued %s", command->ToString());
+// 	if (debugModeEnabled) ms_message("[vpu_wrapper] command dequeued %s", command->ToString());
 	return command;
 }
 
@@ -302,7 +302,7 @@ int VpuWrapper::VpuOpenEncoder(MSIMX6VPUH264EncData* d)
 	
 	slicemode.sliceMode = 1;
 	slicemode.sliceSizeMode = 0;
-	slicemode.sliceSize = ms_get_payload_max_size() - 1;
+	slicemode.sliceSize = (ms_get_payload_max_size() - 500) * 8;
 	
 	oparam.bitstreamFormat = STD_AVC;
 	oparam.bitstreamBuffer = d->bitstream_mem.phy_addr;
@@ -425,12 +425,29 @@ int VpuWrapper::VpuInitDecoder(MSIMX6VPUH264DecData* d)
 	return 0;
 }
 
+static void create_sps_pps_from_vpu(void *start, int size, mblk_t *m) {
+	uint8_t *ptr = (uint8_t*) start;
+	uint8_t *bs_end = ptr + size;
+	
+	if (ptr + 3 < bs_end && ptr[0] == 0 && ptr[1] == 0 && ptr[2] == 0 && ptr[3] == 1) {
+		ptr += 4; // Skip NAL marker 0001
+		size -= 4;
+	}
+	
+	m = allocb(size, 0);
+	memcpy(m->b_wptr, ptr, size);
+	m->b_wptr += size;
+}
+
 int VpuWrapper::VpuInitEncoder(MSIMX6VPUH264EncData* d)
 {
 	RetCode ret;
 	int err = 0;
 	EncInitialInfo initinfo = {0};
-	EncHeaderParam header = {0};
+	EncHeaderParam sps_header = {0};
+	EncHeaderParam pps_header = {0};
+	int sps_real_size = 0;
+	int pps_real_size = 0;
 	
 	if (d->configure_done) {
 		ms_warning("[vpu_wrapper] encoder already initialized, skip");
@@ -453,26 +470,29 @@ int VpuWrapper::VpuInitEncoder(MSIMX6VPUH264EncData* d)
 		return -1;
 	}
 
-	header.headerType = SPS_RBSP;
-	header.buf = d->sps->desc.phy_addr;
-	header.size = d->sps->desc.size;
-	ret = vpu_EncGiveCommand(d->handle, ENC_PUT_AVC_HEADER, &header);
+	sps_header.headerType = SPS_RBSP;
+	sps_header.buf = d->bitstream_mem.phy_addr;
+	sps_header.size = d->bitstream_mem.size;
+	ret = vpu_EncGiveCommand(d->handle, ENC_PUT_AVC_HEADER, &sps_header);
 	if (ret != RETCODE_SUCCESS) {
 		ms_error("[vpu_wrapper] vpu_EncGiveCommand ENC_PUT_AVC_HEADER SPS_RBSP error: %i", ret);
 		return -1;
 	}
-	d->sps->desc.size = header.size;
-	
-	memset(&header, 0, sizeof(EncHeaderParam));
-	header.headerType = PPS_RBSP;
-	header.buf = d->pps->desc.phy_addr;
-	header.size = d->pps->desc.size;
-	ret = vpu_EncGiveCommand(d->handle, ENC_PUT_AVC_HEADER, &header);
+	sps_real_size = sps_header.size - 4;
+	d->sps_mblkt = allocb(sps_real_size, 0);
+	memcpy(d->sps_mblkt->b_wptr, d->bitstream_mem.virt_uaddr + sps_header.buf + 4 - d->bitstream_mem.phy_addr, sps_real_size);
+	d->sps_mblkt->b_wptr += sps_real_size;
+
+	pps_header.headerType = PPS_RBSP;
+	ret = vpu_EncGiveCommand(d->handle, ENC_PUT_AVC_HEADER, &pps_header);
 	if (ret != RETCODE_SUCCESS) {
 		ms_error("[vpu_wrapper] vpu_EncGiveCommand ENC_PUT_AVC_HEADER PPS_RBSP error: %i", ret);
 		return -1;
 	}
-	d->pps->desc.size = header.size;
+	pps_real_size = pps_header.size - sps_header.size - 4; // VPU gives the PPS with the SPS prepended, we'll skip it
+	d->pps_mblkt = allocb(pps_real_size, 0);
+	memcpy(d->pps_mblkt->b_wptr, d->bitstream_mem.virt_uaddr + pps_header.buf + sps_header.size + 4 - d->bitstream_mem.phy_addr, pps_real_size);
+	d->pps_mblkt->b_wptr += pps_real_size;
 	
 	return 0;
 }
@@ -648,35 +668,6 @@ int VpuWrapper::VpuAllocEncoderBuffer(MSIMX6VPUH264EncData* d)
 		goto err;
 	}
 	
-	d->sps = (IMX6VPUFrameBuffer*) ms_malloc0(sizeof(IMX6VPUFrameBuffer));
-	memset(&(d->sps->desc), 0, sizeof(vpu_mem_desc));
-	d->sps->desc.size = 32;
-	err = IOGetPhyMem(&d->sps->desc);
-	if (err) {
-		ms_error("[vpu_wrapper] error getting phymem for SPS buffer");
-		goto err;
-	}
-	d->sps->desc.virt_uaddr = IOGetVirtMem(&(d->sps->desc));
-	if (d->sps->desc.virt_uaddr <= 0) {
-		ms_error("[vpu_wrapper] error getting virt mem for SPS buffer");
-		goto err;
-	}
-	
-	d->pps = (IMX6VPUFrameBuffer*) ms_malloc0(sizeof(IMX6VPUFrameBuffer));
-	memset(&(d->pps->desc), 0, sizeof(vpu_mem_desc));
-	d->pps->desc.size = 32;
-	err = IOGetPhyMem(&d->pps->desc);
-	if (err) {
-		ms_error("[vpu_wrapper] error getting phymem for PPS buffer");
-		goto err;
-	}
-	d->pps->desc.virt_uaddr = IOGetVirtMem(&(d->pps->desc));
-	if (d->pps->desc.virt_uaddr <= 0) {
-		ms_error("[vpu_wrapper] error getting virt mem for PPS buffer");
-		goto err;
-	}
-	
-		
 	return 0;
 	
 err:
@@ -799,8 +790,6 @@ update:
 	return 0;
 }
 
-
-
 int VpuWrapper::VpuFillEncoderBuffer(MSIMX6VPUH264EncData *d, MSPicture *pic) {
 	int offset = 0;
 	IMX6VPUFrameBuffer *framebuff;
@@ -830,7 +819,7 @@ static int frame_to_nalus(MSQueue *nalus, void *bitstream, int size, void *bitst
 	int nal_size = 0;
 	bool_t loop_needed = FALSE, has_looped = FALSE;
 	mblk_t *temp = NULL, *m = NULL;
-	int tmp_buffer_size = ms_get_payload_max_size() - 1;
+	int tmp_buffer_size = ms_get_payload_max_size() * 2;
 	
 	loop_needed = bitstream2 != NULL && size2 > 0;
 	has_looped = !loop_needed;
@@ -1100,28 +1089,6 @@ int VpuWrapper::VpuEncodeFrame(MSIMX6VPUH264EncData* d, MSQueue *nalus)
 		params.forceIPicture = 1;
 		d->generate_keyframe = FALSE;
 		if (debugModeEnabled) ms_message("[vpu_wrapper] asking for I frame");
-		
-		/*ret = vpu_EncGiveCommand(d->handle, ENC_GET_SPS_RBSP, &header);
-		if (ret != RETCODE_SUCCESS) {
-			ms_error("[vpu_wrapper] vpu_EncGiveCommand ENC_GET_SPS_RBSP failed with error: %d", ret);
-		} else {
-			if (debugModeEnabled) ms_message("[vpu_wrapper] SPS added");
-			mblk_t *m = allocb(header.size, 0);
-			memcpy(m->b_wptr, header.paraSet, header.size);
-			m->b_wptr += header.size;
-			if (nalus) ms_queue_put(nalus, dupmsg(m));
-		}
-		
-		ret = vpu_EncGiveCommand(d->handle, ENC_GET_PPS_RBSP, &header);
-		if (ret != RETCODE_SUCCESS) {
-			ms_error("[vpu_wrapper] vpu_EncGiveCommand ENC_GET_PPS_RBSP failed with error: %d", ret);
-		} else {
-			if (debugModeEnabled) ms_message("[vpu_wrapper] PPS added");
-			mblk_t *m = allocb(header.size, 0);
-			memcpy(m->b_wptr, header.paraSet, header.size);
-			m->b_wptr += header.size;
-			if (nalus) ms_queue_put(nalus, dupmsg(m));
-		}*/
 	}
 		
 	ret = vpu_EncStartOneFrame(d->handle, &params);
@@ -1146,19 +1113,15 @@ int VpuWrapper::VpuEncodeFrame(MSIMX6VPUH264EncData* d, MSQueue *nalus)
 	
 	if (outinfo.picType == 0) {
 		if (debugModeEnabled) ms_message("[vpu_wrapper] I frame ready with %i slices", outinfo.numOfSlices);
-		
-		// Add SPS and PPS before the I Frame
-		mblk_t *m = allocb(d->sps->desc.size, 0);
-		memcpy(m->b_wptr, d->sps->desc.virt_uaddr, d->sps->desc.size);
-		m->b_wptr += d->sps->desc.size;
-		if (nalus) ms_queue_put(nalus, dupmsg(m));
-		if (debugModeEnabled) ms_message("[vpu_wrapper] SPS added");
-
-		m = allocb(d->pps->desc.size, 0);
-		memcpy(m->b_wptr, d->pps->desc.virt_uaddr, d->pps->desc.size);
-		m->b_wptr += d->pps->desc.size;
-		if (nalus) ms_queue_put(nalus, dupmsg(m));
-		if (debugModeEnabled) ms_message("[vpu_wrapper] PPS added");
+				
+		if (nalus && d->sps_mblkt) {
+			ms_queue_put(nalus, dupmsg(d->sps_mblkt));
+			if (debugModeEnabled) ms_message("[vpu_wrapper] SPS added");
+		}
+		if (nalus && d->pps_mblkt) {
+			ms_queue_put(nalus, dupmsg(d->pps_mblkt));
+			if (debugModeEnabled) ms_message("[vpu_wrapper] PPS added");
+		}
 	}
 	if (outinfo.bitstreamWrapAround) {
 		if (debugModeEnabled) ms_warning("[vpu_wrapper] encoder reports a buffer wrap around!");
@@ -1232,10 +1195,13 @@ void VpuWrapper::VpuCloseEncoder(MSIMX6VPUH264EncData* d)
 	if (d->handle != NULL) {
 		IOFreeVirtMem(&d->bitstream_mem);
 		IOFreePhyMem(&d->bitstream_mem);
-		IOFreeVirtMem(&d->sps->desc);
-		IOFreePhyMem(&d->sps->desc);
-		IOFreeVirtMem(&d->pps->desc);
-		IOFreePhyMem(&d->pps->desc);
+	}
+	
+	if (d->sps_mblkt) {
+		ms_free(d->sps_mblkt);
+	}
+	if (d->pps_mblkt) {
+		ms_free(d->pps_mblkt);
 	}
 	
 	if (d->configure_done) {

@@ -23,11 +23,11 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 	{ required_bitrate, bitrate_limit, { MS_VIDEO_SIZE_ ## resolution ## _W, MS_VIDEO_SIZE_ ## resolution ## _H }, fps, NULL }
 
 static const MSVideoConfiguration h264_conf_list[] = {
-	MS_H264_CONF( 1024000,  1536000, VGA, 15),
-	MS_H264_CONF( 512000,   1024000, CIF, 12),
-	MS_H264_CONF( 256000,   512000, QVGA, 10),
-	MS_H264_CONF( 128000,   256000, QCIF, 10),
-	MS_H264_CONF(      0,   64000,  QCIF,  7)
+	MS_H264_CONF( 1024000,  1536000, 720P, 15),
+	MS_H264_CONF(  512000,  1024000,  XGA, 15),
+	MS_H264_CONF(  256000,   512000,  VGA, 15),
+	MS_H264_CONF(  128000,   256000, QCIF, 10),
+	MS_H264_CONF(       0,    64000, QCIF,  7)
 };
 
 static const MSVideoConfiguration multicore_h264_conf_list[] = {
@@ -130,8 +130,8 @@ static void msimx6vpu_h264_enc_init(MSFilter *f) {
 	
 	d->handle = NULL;
 	d->nalus = NULL;
-	d->sps = NULL;
-	d->pps = NULL;
+	d->sps_mblkt = NULL;
+	d->pps_mblkt = NULL;
 	d->configure_done = FALSE;
 	d->generate_keyframe = FALSE;
 	d->packet_num = 0;
