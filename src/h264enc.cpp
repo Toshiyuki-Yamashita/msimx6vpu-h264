@@ -65,10 +65,6 @@ void encoder_init_callback(void *v, int result) {
 	ms_filter_unlock(d->filter);
 }
 
-void encoder_fill_buffer_callback(void *v, int result) {
-	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData *)v;
-}
-
 void encoder_encode_frame_callback(void *v, int result) {
 	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData *)v;
 	uint32_t ts = 0;
@@ -161,6 +157,30 @@ static void msimx6vpu_h264_enc_preprocess(MSFilter *f) {
 	d->nalus = ms_queue_new(f, NULL, NULL, NULL);
 }
 
+static int msimx6vpu_h264_enc_fill_encoder_buffer(MSIMX6VPUH264EncData *d, MSPicture *pic) {
+	int offset = 0;
+	IMX6VPUFrameBuffer *framebuff;
+	MSVideoSize roi = {0};
+	uint8_t *dest_planes[3];
+	int dest_strides[3];
+	
+	framebuff = d->fbpool[d->src_buffer_index];
+	offset = framebuff->desc.virt_uaddr - framebuff->desc.phy_addr;
+	dest_planes[0] = (uint8_t *) framebuff->addrY + offset;
+	dest_planes[1] = (uint8_t *) framebuff->addrCb + offset;
+	dest_planes[2] = (uint8_t *) framebuff->addrCr + offset;
+	
+	dest_strides[0] = framebuff->strideY;
+	dest_strides[1] = framebuff->strideC;
+	dest_strides[2] = framebuff->strideC;
+	
+	roi.width = pic->w;
+	roi.height = pic->h;
+	
+	ms_yuv_buf_copy(pic->planes, pic->strides, dest_planes, dest_strides, roi);
+	return 0;
+}
+
 static void msimx6vpu_h264_enc_process(MSFilter *f) {
 	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData*)f->data;
 	MSPicture pic;
@@ -191,8 +211,7 @@ static void msimx6vpu_h264_enc_process(MSFilter *f) {
 			}
 			
 			if (d->configure_done && !d->encode_frame_command_queued) {
-				d->src_pic = pic;
-				VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(FILL_ENCODER_BUFFER, d, &encoder_fill_buffer_callback, &d->src_pic));
+				msimx6vpu_h264_enc_fill_encoder_buffer(d, &pic);
 			}
 		}
 		freemsg(im);

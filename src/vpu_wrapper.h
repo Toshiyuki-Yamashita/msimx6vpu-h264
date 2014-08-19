@@ -47,7 +47,6 @@ extern  "C"
 		int src_width;
 		int src_height;
 		int src_buffer_index;
-		MSPicture src_pic;
 		int regfbcount;
 		int minfbcount;
 		FrameBuffer *fbs;
@@ -111,7 +110,6 @@ enum VpuCommandEnum {
 	OPEN_DECODER,
 	INIT_ENCODER,
 	INIT_DECODER,
-	FILL_ENCODER_BUFFER,
 	FILL_DECODER_BUFFER,
 	CLOSE_ENCODER,
 	CLOSE_DECODER,

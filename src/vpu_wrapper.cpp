@@ -44,8 +44,6 @@ const char* VpuCommand::ToString()
 			return "INIT_DECODER";
 		case INIT_ENCODER:
 			return "INIT_ENCODER";
-		case FILL_ENCODER_BUFFER:
-			return "FILL_ENCODER_BUFFER";
 		case FILL_DECODER_BUFFER:
 			return "FILL_DECODER_BUFFER";
 		case CLOSE_DECODER:
@@ -83,9 +81,6 @@ void* VpuCommand::Run(VpuWrapper *wrapper)
 			break;
 		case INIT_ENCODER:
 			result = wrapper->VpuInitEncoder((MSIMX6VPUH264EncData *) data);
-			break;
-		case FILL_ENCODER_BUFFER:
-			result = wrapper->VpuFillEncoderBuffer((MSIMX6VPUH264EncData *) data, (MSPicture *) extraParam);
 			break;
 		case FILL_DECODER_BUFFER:
 			result = wrapper->VpuFillDecoderBuffer((MSIMX6VPUH264DecData *) data);
@@ -302,14 +297,14 @@ int VpuWrapper::VpuOpenEncoder(MSIMX6VPUH264EncData* d)
 	
 	slicemode.sliceMode = 1;
 	slicemode.sliceSizeMode = 0;
-	slicemode.sliceSize = (ms_get_payload_max_size() - 500) * 8;
+	slicemode.sliceSize = (ms_get_payload_max_size() - 1000) * 8;
 	
 	oparam.bitstreamFormat = STD_AVC;
 	oparam.bitstreamBuffer = d->bitstream_mem.phy_addr;
 	oparam.bitstreamBufferSize = STREAM_BUF_SIZE;
 	oparam.picWidth = d->vconf.vsize.width;
 	oparam.picHeight = d->vconf.vsize.height;
-	oparam.frameRateInfo = (int)d->vconf.fps;
+ 	oparam.frameRateInfo = (int)d->vconf.fps;
 	oparam.bitRate = d->vconf.bitrate_limit / KBPS;
 	oparam.ringBufferEnable = 1;
 	oparam.chromaInterleave = 0;
@@ -423,20 +418,6 @@ int VpuWrapper::VpuInitDecoder(MSIMX6VPUH264DecData* d)
 	}
 	
 	return 0;
-}
-
-static void create_sps_pps_from_vpu(void *start, int size, mblk_t *m) {
-	uint8_t *ptr = (uint8_t*) start;
-	uint8_t *bs_end = ptr + size;
-	
-	if (ptr + 3 < bs_end && ptr[0] == 0 && ptr[1] == 0 && ptr[2] == 0 && ptr[3] == 1) {
-		ptr += 4; // Skip NAL marker 0001
-		size -= 4;
-	}
-	
-	m = allocb(size, 0);
-	memcpy(m->b_wptr, ptr, size);
-	m->b_wptr += size;
 }
 
 int VpuWrapper::VpuInitEncoder(MSIMX6VPUH264EncData* d)
@@ -787,30 +768,6 @@ update:
 		}
 	}
 	
-	return 0;
-}
-
-int VpuWrapper::VpuFillEncoderBuffer(MSIMX6VPUH264EncData *d, MSPicture *pic) {
-	int offset = 0;
-	IMX6VPUFrameBuffer *framebuff;
-	MSVideoSize roi = {0};
-	uint8_t *dest_planes[3];
-	int dest_strides[3];
-	
-	framebuff = d->fbpool[d->src_buffer_index];
-	offset = framebuff->desc.virt_uaddr - framebuff->desc.phy_addr;
-	dest_planes[0] = (uint8_t *) framebuff->addrY + offset;
-	dest_planes[1] = (uint8_t *) framebuff->addrCb + offset;
-	dest_planes[2] = (uint8_t *) framebuff->addrCr + offset;
-	
-	dest_strides[0] = framebuff->strideY;
-	dest_strides[1] = framebuff->strideC;
-	dest_strides[2] = framebuff->strideC;
-	
-	roi.width = pic->w;
-	roi.height = pic->h;
-	
-	ms_yuv_buf_copy(pic->planes, pic->strides, dest_planes, dest_strides, roi);
 	return 0;
 }
 
