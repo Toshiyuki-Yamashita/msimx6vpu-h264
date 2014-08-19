@@ -23,12 +23,20 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 	{ required_bitrate, bitrate_limit, { MS_VIDEO_SIZE_ ## resolution ## _W, MS_VIDEO_SIZE_ ## resolution ## _H }, fps, NULL }
 
 static const MSVideoConfiguration h264_conf_list[] = {
+	MS_H264_CONF( 1024000,  1536000, VGA, 15),
+	MS_H264_CONF( 512000,   1024000, CIF, 15),
+	MS_H264_CONF( 256000,   512000, QVGA, 15),
+	MS_H264_CONF( 128000,   256000, QCIF, 15),
+	MS_H264_CONF(      0,   64000,  QCIF, 12)
+};
+
+/*static const MSVideoConfiguration h264_conf_list[] = {
 	MS_H264_CONF( 1024000,  1536000, 720P, 15),
 	MS_H264_CONF(  512000,  1024000,  XGA, 15),
 	MS_H264_CONF(  256000,   512000,  VGA, 15),
 	MS_H264_CONF(  128000,   256000, QCIF, 10),
 	MS_H264_CONF(       0,    64000, QCIF,  7)
-};
+};*/
 
 static const MSVideoConfiguration multicore_h264_conf_list[] = {
 	MS_H264_CONF(2048000, 3072000,       UXGA, 15),
@@ -254,6 +262,8 @@ static int msimx6vpu_h264_enc_get_br(MSFilter *f, void *arg){
 static int msimx6vpu_h264_enc_set_configuration(MSFilter *f, void *arg) {
 	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData *)f->data;
 	const MSVideoConfiguration *vconf = (const MSVideoConfiguration *)arg;
+	
+	
 	if (vconf != &d->vconf) memcpy(&d->vconf, vconf, sizeof(MSVideoConfiguration));
 
 	if (d->vconf.required_bitrate > d->vconf.bitrate_limit) {
@@ -289,7 +299,8 @@ static int msimx6vpu_h264_enc_set_br(MSFilter *f, void *arg) {
 
 static int msimx6vpu_h264_enc_set_fps(MSFilter *f, void *arg){
 	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData*)f->data;
-	d->vconf.fps = *(float*)arg;
+	float fps = *(float*)arg;
+	d->vconf.fps = fps;
 	msimx6vpu_h264_enc_set_configuration(f, &d->vconf);
 	return 0;
 }
@@ -352,6 +363,7 @@ static MSFilterMethod msimx6vpu_h264_enc_methods[] = {
 	{ MS_FILTER_REQ_VFU,						msimx6vpu_h264_enc_req_vfu					},
 	{ MS_VIDEO_ENCODER_REQ_VFU,					msimx6vpu_h264_enc_req_vfu					},
 	{ MS_VIDEO_ENCODER_GET_CONFIGURATION_LIST, 	msimx6vpu_h264_enc_get_configuration_list	},
+	{ MS_VIDEO_ENCODER_SET_CONFIGURATION,		msimx6vpu_h264_enc_set_configuration		},
 	{ MS_FILTER_ADD_FMTP,						msimx6vpu_h264_enc_add_fmtp					},
 	{ 0,										NULL										}
 };
