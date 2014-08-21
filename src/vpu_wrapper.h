@@ -30,6 +30,8 @@ extern  "C"
 	#include "mediastreamer2/msvideo.h"
 	#include "mediastreamer2/rfc3984.h"
 	#include "mediastreamer2/videostarter.h"
+	
+	#define ENCODER_SRC_BUFFERS 2
 
 	typedef struct imx6vpu_framebuffer {
 		vpu_mem_desc desc;
@@ -66,6 +68,7 @@ extern  "C"
 		int mode;
 		MSQueue *nalus;
 		bool_t shutdown;
+		int latest_src_buffer;
 	} MSIMX6VPUH264EncData;
 
 	typedef struct _MSIMX6VPUH264DecData {

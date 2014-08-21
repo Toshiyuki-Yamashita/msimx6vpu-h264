@@ -147,6 +147,7 @@ static void msimx6vpu_h264_enc_init(MSFilter *f) {
 	d->init_command_queued = FALSE;
 	d->shutdown = FALSE;
 	d->mode = 0;
+	d->latest_src_buffer = ENCODER_SRC_BUFFERS - 1;
 	d->filter = f;
 	f->data = d;
 }
@@ -172,7 +173,8 @@ static int msimx6vpu_h264_enc_fill_encoder_buffer(MSIMX6VPUH264EncData *d, MSPic
 	uint8_t *dest_planes[3];
 	int dest_strides[3];
 	
-	framebuff = d->fbpool[d->src_buffer_index];
+	d->latest_src_buffer = (d->latest_src_buffer + 1) % ENCODER_SRC_BUFFERS;
+	framebuff = d->fbpool[d->src_buffer_index + d->latest_src_buffer];
 	offset = framebuff->desc.virt_uaddr - framebuff->desc.phy_addr;
 	dest_planes[0] = (uint8_t *) framebuff->addrY + offset;
 	dest_planes[1] = (uint8_t *) framebuff->addrCb + offset;

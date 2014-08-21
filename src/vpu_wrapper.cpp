@@ -316,6 +316,8 @@ int VpuWrapper::VpuOpenEncoder(MSIMX6VPUH264EncData* d)
 	oparam.EncStdParam.avcParam.paraset_refresh_en = 0; // Auto insert of SPS/PPS
 	oparam.EncStdParam.avcParam.avc_constrainedIntraPredFlag = 1;
 	oparam.EncStdParam.avcParam.avc_disableDeblk = 0; // Deblocking, 1 to disable, 0 to enable
+	oparam.EncStdParam.avcParam.avc_deblkFilterOffsetAlpha = 0;
+	oparam.EncStdParam.avcParam.avc_deblkFilterOffsetBeta = 0;
 	oparam.EncStdParam.avcParam.interview_en = 1;
 	oparam.gopSize = d->vconf.fps * 10; // One I frame every ten seconds
 	oparam.userQpMin = -1; // Quantization step, -1 for default minimum value, else 0-51
@@ -442,9 +444,9 @@ int VpuWrapper::VpuInitEncoder(MSIMX6VPUH264EncData* d)
 	}
 
 	d->minfbcount = initinfo.minFrameBufferCount;
-	d->regfbcount = d->minfbcount + 2 + 1; // 1 is for the src buffer
+	d->regfbcount = d->minfbcount + 2 + ENCODER_SRC_BUFFERS; // ENCODER_SRC_BUFFERS is for the src buffers
 	if (debugModeEnabled) ms_warning("[vpu_wrapper] using %i fb buffers for encoder", d->regfbcount);
-	d->src_buffer_index = d->regfbcount - 1;
+	d->src_buffer_index = d->regfbcount - ENCODER_SRC_BUFFERS;
 	
 	if (VpuAllocEncoderBuffer(d) < 0) {
 		ms_message("[vpu_wrapper] unable to allocate frame buffers");
@@ -602,7 +604,7 @@ int VpuWrapper::VpuAllocEncoderBuffer(MSIMX6VPUH264EncData* d)
 	
 	
 	for (i = 0; i < d->regfbcount; i++) {
-		if (i == d->regfbcount - 1) { // Src buffer
+		if (i >= d->regfbcount - ENCODER_SRC_BUFFERS) { // Src buffers
 			width = src_fbwidth;
 			height = src_fbheight;
 			stride = src_stride;
@@ -1040,7 +1042,7 @@ int VpuWrapper::VpuEncodeFrame(MSIMX6VPUH264EncData* d, MSQueue *nalus)
 	EncParamSet header = {0};
 	int loop = 0;
 	
-	params.sourceFrame = &d->fbs[d->src_buffer_index];
+	params.sourceFrame = &d->fbs[d->src_buffer_index + d->latest_src_buffer];
 	params.enableAutoSkip = 1;
 	if (d->generate_keyframe) {
 		params.forceIPicture = 1;
