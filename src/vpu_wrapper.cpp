@@ -983,6 +983,7 @@ int VpuWrapper::VpuDecodeFrame(MSIMX6VPUH264DecData* d)
 			vpu_SWReset(d->handle, 0);
 		}
 		loop++;
+		ms_sleep(0.1);
 	}
 	
 	ret = vpu_DecGetOutputInfo(d->handle, &outinfos);
@@ -1062,6 +1063,7 @@ int VpuWrapper::VpuEncodeFrame(MSIMX6VPUH264EncData* d, MSQueue *nalus)
 			vpu_SWReset(d->handle, 0);
 		}
 		loop++;
+		ms_sleep(0.1);
 	}
 	
 	ret = vpu_EncGetOutputInfo(d->handle, &outinfo);
@@ -1115,21 +1117,19 @@ void VpuWrapper::VpuCloseDecoder(MSIMX6VPUH264DecData* d)
 		IOFreePhyMem(&d->slice_mem);
 	}
 	
-	if (d->configure_done) {
-		if (d->fbpool) {
-			for (i = 0; i < d->regfbcount; i++) {
-				if (debugModeEnabled) ms_warning("[vpu_wrapper] dec freed buffer %i", i);
-				free_framebuffer(d->fbpool[i]);
-			}
+	if (d->fbpool) {
+		for (i = 0; i < d->regfbcount; i++) {
+			if (debugModeEnabled) ms_warning("[vpu_wrapper] dec freed buffer %i", i);
+			free_framebuffer(d->fbpool[i]);
 		}
-		if (d->fbs) {
-			ms_free(d->fbs);
-			d->fbs = NULL;
-		}
-		if (d->fbpool) {
-			ms_free(d->fbpool);
-			d->fbpool = NULL;
-		}
+	}
+	if (d->fbs) {
+		ms_free(d->fbs);
+		d->fbs = NULL;
+	}
+	if (d->fbpool) {
+		ms_free(d->fbpool);
+		d->fbpool = NULL;
 	}
 	
 	d->handle = NULL;
@@ -1163,21 +1163,19 @@ void VpuWrapper::VpuCloseEncoder(MSIMX6VPUH264EncData* d)
 		ms_free(d->pps_mblkt);
 	}
 	
-	if (d->configure_done) {
-		if (d->fbpool) {
-			for (i = 0; i < d->regfbcount; i++) {
-				if (debugModeEnabled) ms_warning("[vpu_wrapper] enc freed buffer %i", i);
-				free_framebuffer(d->fbpool[i]);
-			}
+	if (d->fbpool) {
+		for (i = 0; i < d->regfbcount; i++) {
+			if (debugModeEnabled) ms_warning("[vpu_wrapper] enc freed buffer %i", i);
+			free_framebuffer(d->fbpool[i]);
 		}
-		if (d->fbs) {
-			ms_free(d->fbs);
-			d->fbs = NULL;
-		}
-		if (d->fbpool) {
-			ms_free(d->fbpool);
-			d->fbpool = NULL;
-		}
+	}
+	if (d->fbs) {
+		ms_free(d->fbs);
+		d->fbs = NULL;
+	}
+	if (d->fbpool) {
+		ms_free(d->fbpool);
+		d->fbpool = NULL;
 	}
 	
 	d->handle = NULL;
