@@ -355,6 +355,12 @@ static int msimx6vpu_h264_enc_add_fmtp(MSFilter *f, void *arg){
 	return 0;
 }
 
+static int msimx6vpu_h264_enc_supports_pixfmt(MSFilter *f, void *arg) {
+	MSVideoEncoderPixFmt *pixfmt = (MSVideoEncoderPixFmt *) arg;
+	pixfmt->supported = pixfmt->pixfmt == MS_YUV420P;
+	return 0;
+}
+
 static MSFilterMethod msimx6vpu_h264_enc_methods[] = {
 	{ MS_FILTER_SET_FPS,						msimx6vpu_h264_enc_set_fps					},
 	{ MS_FILTER_SET_BITRATE,					msimx6vpu_h264_enc_set_br					},
@@ -367,6 +373,7 @@ static MSFilterMethod msimx6vpu_h264_enc_methods[] = {
 	{ MS_VIDEO_ENCODER_GET_CONFIGURATION_LIST, 	msimx6vpu_h264_enc_get_configuration_list	},
 	{ MS_VIDEO_ENCODER_SET_CONFIGURATION,		msimx6vpu_h264_enc_set_configuration		},
 	{ MS_FILTER_ADD_FMTP,						msimx6vpu_h264_enc_add_fmtp					},
+	{ MS_VIDEO_ENCODER_SUPPORTS_PIXFMT,			msimx6vpu_h264_enc_supports_pixfmt			},
 	{ 0,										NULL										}
 };
 

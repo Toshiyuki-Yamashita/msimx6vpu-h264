@@ -130,7 +130,7 @@ void* run(VpuWrapper *wrapper)
 			command->Run(wrapper);
 			delete command;
 		} else {
-			ms_sleep(0.05);
+			ms_usleep(50);
 		}
 	}
 	if (wrapper->debugModeEnabled) ms_message("[vpu_wrapper] thread loop has stopped");
@@ -978,12 +978,12 @@ int VpuWrapper::VpuDecodeFrame(MSIMX6VPUH264DecData* d)
 	}
 	
 	while (vpu_IsBusy()) {
+		ms_usleep(30);
 		vpu_WaitForInt(100);
 		if (loop >= 20) {
 			vpu_SWReset(d->handle, 0);
 		}
 		loop++;
-		ms_sleep(0.1);
 	}
 	
 	ret = vpu_DecGetOutputInfo(d->handle, &outinfos);
@@ -1058,12 +1058,12 @@ int VpuWrapper::VpuEncodeFrame(MSIMX6VPUH264EncData* d, MSQueue *nalus)
 	}
 	
 	while (vpu_IsBusy()) {
+		ms_usleep(30);
 		vpu_WaitForInt(100);
 		if (loop >= 20) {
 			vpu_SWReset(d->handle, 0);
 		}
 		loop++;
-		ms_sleep(0.1);
 	}
 	
 	ret = vpu_EncGetOutputInfo(d->handle, &outinfo);
