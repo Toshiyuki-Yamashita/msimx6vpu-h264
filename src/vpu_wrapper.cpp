@@ -775,122 +775,45 @@ update:
 
 static int frame_to_nalus(MSQueue *nalus, void *bitstream, int size, void *bitstream2, int size2) {
 	uint8_t *ptr = (uint8_t*) bitstream, *bs_end = ((uint8_t*) bitstream) + size;
-	int nal_size = 0;
 	bool_t loop_needed = FALSE, has_looped = FALSE;
-	mblk_t *temp = NULL, *m = NULL;
+	mblk_t *temp = NULL;
 	int tmp_buffer_size = ms_get_payload_max_size() * 2;
 	
 	loop_needed = bitstream2 != NULL && size2 > 0;
 	has_looped = !loop_needed;
 	
 	temp = allocb(tmp_buffer_size, 0);
-	nal_size = 0;
 	
 	if (ptr + 3 < bs_end && ptr[0] == 0 && ptr[1] == 0 && ptr[2] == 0 && ptr[3] == 1) {
 		ptr += 4; // Skip NAL marker 0001
 	}
 	
-	do {
-		if (ptr >= bs_end) {
-			break;
-		}
-		
-		if (ptr + 2 < bs_end && ptr[0] == 0 && ptr[1] == 0 && ptr[2] == 1) {
-			if (nalus) {
-				m = allocb(nal_size, 0);
-				memcpy(m->b_wptr, temp->b_rptr, nal_size);
-				m->b_wptr += nal_size;
-				ms_queue_put(nalus, dupmsg(m));
-				freemsg(m);
-				m = NULL;
+loop:
+	while (ptr < bs_end - 3) {
+		*temp->b_wptr++ = *ptr++;
+		if (ptr[0] == 0 && ptr[1] == 0) {
+			if (ptr[2] == 1) {
+				if (nalus) {
+					ms_queue_put(nalus, temp);
+					temp = allocb(tmp_buffer_size, 0);
+				}
+				ptr += 3;
 			}
-			freemsg(temp);
-			temp = NULL;
-			temp = allocb(tmp_buffer_size, 0);
-			nal_size = 0;
-			
-			ptr += 3; // Skip NAL marker 001
-			continue;
 		}
-		
-		if (ptr + 2 < bs_end && ptr[0] == 0 && ptr[1] == 0 && ptr[2] == 3) {
-			memcpy(temp->b_wptr, ptr, 2);
-			temp->b_wptr += 2;
-			nal_size += 2;
-			
-			ptr += 3;
-			continue;
-		}
-		
-		memcpy(temp->b_wptr, ptr, 1);
-		temp->b_wptr += 1;
-		nal_size += 1;
-		ptr += 1;
-	} while (ptr < bs_end);
+	}
+	*temp->b_wptr++ = *ptr++;
+	*temp->b_wptr++ = *ptr++;
+	*temp->b_wptr++ = *ptr++;
 	
 	if (!has_looped) {
 		bs_end = ((uint8_t*) bitstream2) + size2;
 		ptr = (uint8_t*) bitstream2;
-		
-		do {
-			if (ptr >= bs_end) {
-				break;
-			}
-			
-			if (ptr + 2 < bs_end && ptr[0] == 0 && ptr[1] == 0 && ptr[2] == 1) {
-				if (nalus) {
-					m = allocb(nal_size, 0);
-					memcpy(m->b_wptr, temp->b_rptr, nal_size);
-					m->b_wptr += nal_size;
-					ms_queue_put(nalus, dupmsg(m));
-					freemsg(m);
-					m = NULL;
-				}
-				freemsg(temp);
-				temp = NULL;
-				temp = allocb(tmp_buffer_size, 0);
-				nal_size = 0;
-				
-				ptr += 3; // Skip NAL marker 001
-				continue;
-			}
-			
-			if (ptr + 2 < bs_end && ptr[0] == 0 && ptr[1] == 0 && ptr[2] == 3) {
-				memcpy(temp->b_wptr, ptr, 2);
-				temp->b_wptr += 2;
-				nal_size += 2;
-				
-				ptr += 3;
-				continue;
-			}
-			
-			memcpy(temp->b_wptr, ptr, 1);
-			temp->b_wptr += 1;
-			nal_size += 1;
-			ptr += 1;
-		} while (ptr < bs_end);
-		
-		if (nalus) {
-			m = allocb(nal_size, 0);
-			memcpy(m->b_wptr, temp->b_rptr, nal_size);
-			m->b_wptr += nal_size;
-			ms_queue_put(nalus, dupmsg(m));
-			freemsg(m);
-			m = NULL;
-		}
-		freemsg(temp);
-		temp = NULL;
-	} else {
-		if (nalus) {
-			m = allocb(nal_size, 0);
-			memcpy(m->b_wptr, temp->b_rptr, nal_size);
-			m->b_wptr += nal_size;
-			ms_queue_put(nalus, dupmsg(m));
-			freemsg(m);
-			m = NULL;
-		}
-		freemsg(temp);
-		temp = NULL;
+		has_looped = !has_looped;
+		goto loop;
+	}
+	
+	if (nalus) {
+		ms_queue_put(nalus, temp);
 	}
 	
 	return 0;
@@ -1073,7 +996,7 @@ int VpuWrapper::VpuEncodeFrame(MSIMX6VPUH264EncData* d, MSQueue *nalus)
 	}
 	
 	if (outinfo.picType == 0) {
-		if (debugModeEnabled) ms_message("[vpu_wrapper] I frame ready with %i slices", outinfo.numOfSlices);
+		if (debugModeEnabled) ms_message("[vpu_wrapper] I frame ready");
 				
 		if (nalus && d->sps_mblkt) {
 			ms_queue_put(nalus, dupmsg(d->sps_mblkt));

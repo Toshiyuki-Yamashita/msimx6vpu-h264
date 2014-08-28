@@ -30,14 +30,6 @@ static const MSVideoConfiguration h264_conf_list[] = {
 	MS_H264_CONF(      0,   64000,  QCIF, 12)
 };
 
-/*static const MSVideoConfiguration h264_conf_list[] = {
-	MS_H264_CONF( 1024000,  1536000, 720P, 15),
-	MS_H264_CONF(  512000,  1024000,  XGA, 15),
-	MS_H264_CONF(  256000,   512000,  VGA, 15),
-	MS_H264_CONF(  128000,   256000, QCIF, 10),
-	MS_H264_CONF(       0,    64000, QCIF,  7)
-};*/
-
 static const MSVideoConfiguration multicore_h264_conf_list[] = {
 	MS_H264_CONF(2048000, 3072000,       UXGA, 15),
 	MS_H264_CONF(1024000, 1536000, SXGA_MINUS, 15),
