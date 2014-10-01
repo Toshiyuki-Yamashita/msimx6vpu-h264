@@ -481,13 +481,15 @@ int VpuWrapper::VpuInitEncoder(MSIMX6VPUH264EncData* d)
 }
 
 void free_framebuffer(IMX6VPUFrameBuffer *fb) {
-	if (fb->desc.virt_uaddr) {
-		IOFreeVirtMem(&fb->desc);
+	if (fb) {
+		if (fb->desc.virt_uaddr) {
+			IOFreeVirtMem(&fb->desc);
+		}
+		if (fb->desc.phy_addr) {
+			IOFreePhyMem(&fb->desc);
+		}
+		memset(&fb->desc, 0, sizeof(vpu_mem_desc));
 	}
-	if (fb->desc.phy_addr) {
-		IOFreePhyMem(&fb->desc);
-	}
-	memset(&fb->desc, 0, sizeof(vpu_mem_desc));
 }
 
 int VpuWrapper::VpuAllocDecoderBuffer(MSIMX6VPUH264DecData* d)
