@@ -481,7 +481,7 @@ int VpuWrapper::VpuInitEncoder(MSIMX6VPUH264EncData* d)
 }
 
 void free_framebuffer(IMX6VPUFrameBuffer *fb) {
-	if (fb && fb->desc) {
+	if (fb != NULL && &fb->desc != NULL) {
 		if (fb->desc.virt_uaddr) {
 			IOFreeVirtMem(&fb->desc);
 		}
