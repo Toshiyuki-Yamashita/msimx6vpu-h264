@@ -1042,7 +1042,7 @@ void VpuWrapper::VpuCloseDecoder(MSIMX6VPUH264DecData* d)
 		IOFreePhyMem(&d->slice_mem);
 	}
 	
-	if (d->fbpool) {
+	if (d->fbpool && d->regfbcount > 0) {
 		for (i = 0; i < d->regfbcount; i++) {
 			if (debugModeEnabled) ms_warning("[vpu_wrapper] dec freed buffer %i", i);
 			free_framebuffer(d->fbpool[i]);
@@ -1088,7 +1088,7 @@ void VpuWrapper::VpuCloseEncoder(MSIMX6VPUH264EncData* d)
 		ms_free(d->pps_mblkt);
 	}
 	
-	if (d->fbpool) {
+	if (d->fbpool && d->regfbcount > 0) {
 		for (i = 0; i < d->regfbcount; i++) {
 			if (debugModeEnabled) ms_warning("[vpu_wrapper] enc freed buffer %i", i);
 			free_framebuffer(d->fbpool[i]);
