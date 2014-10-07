@@ -1043,23 +1043,28 @@ void VpuWrapper::VpuCloseDecoder(MSIMX6VPUH264DecData* d)
 		IOFreePhyMem(&d->bitstream_mem);
 		IOFreePhyMem(&d->slice_mem);
 	}
-	
-	if (d->fbpool && d->regfbcount > 0) {
-		for (i = 0; i < d->regfbcount; i++) {
-			if (debugModeEnabled) ms_warning("[vpu_wrapper] dec freed buffer %i", i);
-			free_framebuffer(d->fbpool[i]);
+		
+	if (d->configure_done) {
+		if (d->fbpool && d->regfbcount > 0) {
+			for (i = 0; i < d->regfbcount; i++) {
+				if (debugModeEnabled) ms_warning("[vpu_wrapper] dec freed buffer %i", i);
+				free_framebuffer(d->fbpool[i]);
+			}
 		}
-	}
-	if (d->fbs) {
-		ms_free(d->fbs);
-		d->fbs = NULL;
-	}
-	if (d->fbpool) {
-		ms_free(d->fbpool);
-		d->fbpool = NULL;
+		if (d->fbs) {
+			ms_free(d->fbs);
+			d->fbs = NULL;
+		}
+		if (d->fbpool) {
+			ms_free(d->fbpool);
+			d->fbpool = NULL;
+		}
+		
+		d->regfbcount = 0;
+	} else {
+		ms_message("[vpu_wrapper] decoder wasn't configured, nothing more to do"); 
 	}
 	
-	d->regfbcount = 0;
 	d->handle = NULL;
 	decoderClosed = TRUE;
 	if (debugModeEnabled) ms_message("[vpu_wrapper] vpu decoder closed");
@@ -1084,29 +1089,34 @@ void VpuWrapper::VpuCloseEncoder(MSIMX6VPUH264EncData* d)
 		IOFreePhyMem(&d->bitstream_mem);
 	}
 	
-	if (d->sps_mblkt) {
-		ms_free(d->sps_mblkt);
-	}
-	if (d->pps_mblkt) {
-		ms_free(d->pps_mblkt);
-	}
-	
-	if (d->fbpool && d->regfbcount > 0) {
-		for (i = 0; i < d->regfbcount; i++) {
-			if (debugModeEnabled) ms_warning("[vpu_wrapper] enc freed buffer %i", i);
-			free_framebuffer(d->fbpool[i]);
+	if (d->configure_done) {
+		if (d->sps_mblkt) {
+			ms_free(d->sps_mblkt);
 		}
-	}
-	if (d->fbs) {
-		ms_free(d->fbs);
-		d->fbs = NULL;
-	}
-	if (d->fbpool) {
-		ms_free(d->fbpool);
-		d->fbpool = NULL;
+		if (d->pps_mblkt) {
+			ms_free(d->pps_mblkt);
+		}
+		
+		if (d->fbpool && d->regfbcount > 0) {
+			for (i = 0; i < d->regfbcount; i++) {
+				if (debugModeEnabled) ms_warning("[vpu_wrapper] enc freed buffer %i", i);
+				free_framebuffer(d->fbpool[i]);
+			}
+		}
+		if (d->fbs) {
+			ms_free(d->fbs);
+			d->fbs = NULL;
+		}
+		if (d->fbpool) {
+			ms_free(d->fbpool);
+			d->fbpool = NULL;
+		}
+		
+		d->regfbcount = 0;
+	} else {
+		ms_message("[vpu_wrapper] encoder wasn't configured, nothing more to do"); 
 	}
 	
-	d->regfbcount = 0;
 	d->handle = NULL;
 	encoderClosed = TRUE;
 	if (debugModeEnabled) ms_message("[vpu_wrapper] vpu encoder closed");
