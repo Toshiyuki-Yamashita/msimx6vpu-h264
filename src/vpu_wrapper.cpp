@@ -563,6 +563,7 @@ int VpuWrapper::VpuAllocDecoderBuffer(MSIMX6VPUH264DecData* d)
 	
 err:
 	for (i = 0; i < d->regfbcount; i++) {
+		ms_warning("[vpu_wrapper] VpuAllocDecoderBuffer error occured, free framebuffer %i", i);
 		free_framebuffer(d->fbpool[i]);
 	}
 	ms_free(d->fbpool);
@@ -657,6 +658,7 @@ int VpuWrapper::VpuAllocEncoderBuffer(MSIMX6VPUH264EncData* d)
 	
 err:
 	for (i = 0; i < d->regfbcount; i++) {
+		ms_warning("[vpu_wrapper] VpuAllocEncoderBuffer error occured, free framebuffer %i", i);
 		free_framebuffer(d->fbpool[i]);
 	}
 	ms_free(d->fbpool);
@@ -1057,6 +1059,7 @@ void VpuWrapper::VpuCloseDecoder(MSIMX6VPUH264DecData* d)
 		d->fbpool = NULL;
 	}
 	
+	d->regfbcount = 0;
 	d->handle = NULL;
 	decoderClosed = TRUE;
 	if (debugModeEnabled) ms_message("[vpu_wrapper] vpu decoder closed");
@@ -1103,6 +1106,7 @@ void VpuWrapper::VpuCloseEncoder(MSIMX6VPUH264EncData* d)
 		d->fbpool = NULL;
 	}
 	
+	d->regfbcount = 0;
 	d->handle = NULL;
 	encoderClosed = TRUE;
 	if (debugModeEnabled) ms_message("[vpu_wrapper] vpu encoder closed");
