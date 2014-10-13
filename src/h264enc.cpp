@@ -315,7 +315,7 @@ static int msimx6vpu_h264_enc_set_vsize(MSFilter *f, void *arg){
 	MSVideoConfiguration best_vconf;
 	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData *)f->data;
 	MSVideoSize *vs = (MSVideoSize *)arg;
-	best_vconf = ms_video_find_best_configuration_for_size(d->vconf_list, *vs);
+	best_vconf = ms_video_find_best_configuration_for_size(d->vconf_list, *vs, 1);
 	d->vconf.vsize = *vs;
 	d->vconf.fps = best_vconf.fps;
 	d->vconf.bitrate_limit = best_vconf.bitrate_limit;
