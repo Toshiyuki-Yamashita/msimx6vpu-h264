@@ -118,7 +118,7 @@ static void msimx6vpu_h264_enc_init(MSFilter *f) {
 	} else { 
 		d->vconf_list = &h264_conf_list[0];
 	}
-	d->vconf = ms_video_find_best_configuration_for_bitrate(d->vconf_list, 384000);
+	d->vconf = ms_video_find_best_configuration_for_bitrate(d->vconf_list, 384000, 1);
 	
 	if (!VpuWrapper::Instance()->IsVpuInitialized()) {
 		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(VPU_INIT, NULL, NULL, NULL));
@@ -285,7 +285,7 @@ static int msimx6vpu_h264_enc_set_br(MSFilter *f, void *arg) {
 		d->vconf.required_bitrate = br;
 		msimx6vpu_h264_enc_set_configuration(f, &d->vconf);
 	} else {
-		MSVideoConfiguration best_vconf = ms_video_find_best_configuration_for_bitrate(d->vconf_list, br);
+		MSVideoConfiguration best_vconf = ms_video_find_best_configuration_for_bitrate(d->vconf_list, br, 1);
 		msimx6vpu_h264_enc_set_configuration(f, &best_vconf);
 	}
 	return 0;
