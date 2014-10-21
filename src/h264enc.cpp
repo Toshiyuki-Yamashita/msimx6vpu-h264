@@ -19,8 +19,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "vpu_wrapper.h"
 
-#define MS_H264_CONF(required_bitrate, bitrate_limit, resolution, fps) \
-	{ required_bitrate, bitrate_limit, { MS_VIDEO_SIZE_ ## resolution ## _W, MS_VIDEO_SIZE_ ## resolution ## _H }, fps, NULL }
+#define MS_H264_CONF(required_bitrate, bitrate_limit, resolution, fps, cpu_count) \
+	{ required_bitrate, bitrate_limit, { MS_VIDEO_SIZE_ ## resolution ## _W, MS_VIDEO_SIZE_ ## resolution ## _H }, fps, cpu_count, NULL }
 
 static const MSVideoConfiguration h264_conf_list[] = {
 	MS_H264_CONF( 384000,   600000, VGA,  15, 1),
