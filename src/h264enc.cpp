@@ -23,23 +23,11 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 	{ required_bitrate, bitrate_limit, { MS_VIDEO_SIZE_ ## resolution ## _W, MS_VIDEO_SIZE_ ## resolution ## _H }, fps, NULL }
 
 static const MSVideoConfiguration h264_conf_list[] = {
-	MS_H264_CONF( 1024000,  1536000, VGA, 15),
-	MS_H264_CONF( 512000,   1024000, CIF, 15),
-	MS_H264_CONF( 256000,   512000, QVGA, 15),
-	MS_H264_CONF( 128000,   256000, QCIF, 15),
-	MS_H264_CONF(      0,   64000,  QCIF, 12)
-};
-
-static const MSVideoConfiguration multicore_h264_conf_list[] = {
-	MS_H264_CONF(2048000, 3072000,       UXGA, 15),
-	MS_H264_CONF(1024000, 1536000, SXGA_MINUS, 15),
-	MS_H264_CONF( 750000, 1024000,        XGA, 15),
-	MS_H264_CONF( 500000,  750000,       SVGA, 15),
-	MS_H264_CONF( 300000,  500000,        VGA, 12),
-	MS_H264_CONF( 170000,  300000,       QVGA, 12),
-	MS_H264_CONF( 128000,   170000,      QCIF, 10),
-	MS_H264_CONF(  64000,   128000,      QCIF,  7),
-	MS_H264_CONF(      0,    64000,      QCIF,  5)
+	MS_H264_CONF( 384000,   600000, VGA,  15, 1),
+	MS_H264_CONF( 384000,   512000, CIF,  15, 1),
+	MS_H264_CONF( 256000,   384000, QVGA, 15, 1),
+	MS_H264_CONF( 128000,   256000, QCIF, 15, 1),
+	MS_H264_CONF(      0,   64000,  QCIF, 12, 1)
 };
 
 void encoder_open_callback(void *v, int result) {
@@ -113,11 +101,7 @@ void encoder_uninit_callback(void *v, int result) {
 static void msimx6vpu_h264_enc_init(MSFilter *f) {
 	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData *)ms_new(MSIMX6VPUH264EncData, 1);
 	
-	if (ms_get_cpu_count() > 1) {
-		d->vconf_list = &multicore_h264_conf_list[0];
-	} else { 
-		d->vconf_list = &h264_conf_list[0];
-	}
+	d->vconf_list = &h264_conf_list[0];
 	d->vconf = ms_video_find_best_configuration_for_bitrate(d->vconf_list, 384000, 1);
 	
 	if (!VpuWrapper::Instance()->IsVpuInitialized()) {
