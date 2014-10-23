@@ -34,7 +34,12 @@ void encoder_open_callback(void *v, int result) {
 	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData *)v;
 	ms_message("[msimx6vpu_h264_enc] open callback with result %i", result);
 	
-	if (result < 0) {
+	if (result == -3) {
+		if (!VpuWrapper::Instance()->IsVpuInitialized()) {
+			VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(VPU_INIT, NULL, NULL, NULL));
+		}
+		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(OPEN_ENCODER, d, &encoder_open_callback, NULL));
+	} else  if (result == -1) {
 		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(OPEN_ENCODER, d, &encoder_open_callback, NULL));
 	}
 }
@@ -47,6 +52,8 @@ void encoder_init_callback(void *v, int result) {
 	if (result == 0) {
 		d->configure_done = TRUE;
 		ms_message("[msimx6vpu_h264_enc] encoder initialized");
+	} else if (result == -4) {
+		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(OPEN_ENCODER, d, &encoder_open_callback, NULL));
 	} else if (result != -3) {
 		ms_error("[msimx6vpu_h264_enc] failed to initialize the encoder");
 	}

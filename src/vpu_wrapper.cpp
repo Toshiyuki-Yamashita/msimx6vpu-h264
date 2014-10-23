@@ -212,6 +212,11 @@ int VpuWrapper::VpuOpenDecoder(MSIMX6VPUH264DecData *d)
 	DecHandle handle = {0};
 	DecOpenParam oparam = {0};
 	
+	if (!isVpuInitialized) {
+		ms_error("[vpu_wrapper] VPU wasn't initialized, can't open the decoder!");
+		return -3;
+	}
+	
 	if (d->handle != NULL) {
 		ms_warning("[vpu_wrapper] decoder already openned");
 		return -2;
@@ -276,6 +281,11 @@ int VpuWrapper::VpuOpenEncoder(MSIMX6VPUH264EncData* d)
 	EncHandle handle = {0};
 	EncOpenParam oparam = {0};
 	EncSliceMode slicemode = {0};
+	
+	if (!isVpuInitialized) {
+		ms_error("[vpu_wrapper] VPU wasn't initialized, can't open the encoder!");
+		return -3;
+	}
 	
 	if (d->handle != NULL) {
 		ms_warning("[vpu_wrapper] encoder already openned");
@@ -347,6 +357,11 @@ int VpuWrapper::VpuInitDecoder(MSIMX6VPUH264DecData* d)
 {
 	RetCode ret;
 	DecInitialInfo initinfo = {0};
+	
+	if (!isVpuInitialized || !d->handle) {
+		ms_error("[vpu_wrapper] VPU wasn't initialized or openned, can't init decoder");
+		return -4;
+	}
 	
 	if (d->configure_done) {
 		ms_warning("[vpu_wrapper] decoder already initialized, skip");
@@ -431,6 +446,11 @@ int VpuWrapper::VpuInitEncoder(MSIMX6VPUH264EncData* d)
 	EncHeaderParam pps_header = {0};
 	int sps_real_size = 0;
 	int pps_real_size = 0;
+	
+	if (!isVpuInitialized || !d->handle) {
+		ms_error("[vpu_wrapper] VPU wasn't initialized or openned, can't init encoder");
+		return -4;
+	}
 	
 	if (d->configure_done) {
 		ms_warning("[vpu_wrapper] encoder already initialized, skip");

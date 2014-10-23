@@ -129,6 +129,15 @@ static int nalusToFrame(MSIMX6VPUH264DecData *d, MSQueue *naluq, bool_t *new_sps
 void decoder_open_callback(void *v, int result) {
 	MSIMX6VPUH264DecData *d = (MSIMX6VPUH264DecData *)v;
 	ms_message("[msimx6vpu_h264_dec] open callback with result %i", result);
+	
+	if (result == -3) {
+		if (!VpuWrapper::Instance()->IsVpuInitialized()) {
+			VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(VPU_INIT, NULL, NULL, NULL));
+		}
+		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(OPEN_DECODER, d, &decoder_open_callback, NULL));
+	} else  if (result == -1) {
+		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(OPEN_DECODER, d, &decoder_open_callback, NULL));
+	}
 }
 
 void decoder_init_callback(void *v, int result) {
@@ -138,6 +147,8 @@ void decoder_init_callback(void *v, int result) {
 		d->configure_done = TRUE;
 		ms_filter_unlock(d->filter);
 		ms_message("[msimx6vpu_h264_dec] decoder initialised");
+	} else if (result == -4) {
+		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(OPEN_DECODER, d, &decoder_open_callback, NULL));
 	} else if (result != -3) {
 		ms_error("[msimx6vpu_h264_dec] failed to initialise the decoder");
 	}
