@@ -211,7 +211,7 @@ static void msimx6vpu_h264_dec_init(MSFilter *f) {
 	d->yuv_msg = NULL;
 	d->frameSize = 0;
 	    
-	d->bitstream_size = 65536 * 4;
+	d->bitstream_size = 65536 * 8;
 	d->bitstream = (uint8_t*) ms_malloc0(d->bitstream_size);
 	d->handle = NULL;
 	d->first_image_decoded = FALSE;

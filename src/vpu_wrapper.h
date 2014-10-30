@@ -31,7 +31,7 @@ extern  "C"
 	#include "mediastreamer2/rfc3984.h"
 	#include "mediastreamer2/videostarter.h"
 	
-	#define ENCODER_SRC_BUFFERS 2
+	#define ENCODER_SRC_BUFFERS 4
 
 	typedef struct imx6vpu_framebuffer {
 		vpu_mem_desc desc;
