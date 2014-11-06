@@ -23,8 +23,14 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define STREAM_BUF_SIZE		0x800000
 #define KBPS				1000
 
+VpuCommand::VpuCommand(VpuCommandEnum cmd, void *d, VpuCommandCallback cb, void *param, int param2)
+ : command(cmd), data(d), callback(cb), extraParam(param), extraParam2(param2)
+{
+
+}
+
 VpuCommand::VpuCommand(VpuCommandEnum cmd, void *d, VpuCommandCallback cb, void *param)
- : command(cmd), data(d), callback(cb), extraParam(param)
+ : command(cmd), data(d), callback(cb), extraParam(param), extraParam2(0)
 {
 
 }
@@ -83,7 +89,8 @@ void* VpuCommand::Run(VpuWrapper *wrapper)
 			result = wrapper->VpuInitEncoder((MSIMX6VPUH264EncData *) data);
 			break;
 		case FILL_DECODER_BUFFER:
-			result = wrapper->VpuFillDecoderBuffer((MSIMX6VPUH264DecData *) data);
+			result = wrapper->VpuFillDecoderBuffer((MSIMX6VPUH264DecData *) data, (uint8_t *) extraParam, extraParam2);
+			ms_free((uint8_t *) extraParam);
 			break;
 		case CLOSE_DECODER:
 			wrapper->VpuCloseDecoder((MSIMX6VPUH264DecData *) data);
@@ -307,7 +314,7 @@ int VpuWrapper::VpuOpenEncoder(MSIMX6VPUH264EncData* d)
 	
 	slicemode.sliceMode = 1;
 	slicemode.sliceSizeMode = 0;
-	slicemode.sliceSize = (ms_get_payload_max_size() - 1000) * 8;
+	slicemode.sliceSize = (ms_get_payload_max_size() - 500) * 8;
 	
 	oparam.bitstreamFormat = STD_AVC;
 	oparam.bitstreamBuffer = d->bitstream_mem.phy_addr;
@@ -694,7 +701,7 @@ static int msimx6vpu_h264_read(void *src, void *dest, size_t n) {
 	return n;
 }
 
-int VpuWrapper::VpuFillDecoderBuffer(MSIMX6VPUH264DecData* d)
+int VpuWrapper::VpuFillDecoderBuffer(MSIMX6VPUH264DecData* d, uint8_t *bitstream, int available)
 {
 	RetCode ret;
 	unsigned long target_addr = 0;
@@ -703,8 +710,6 @@ int VpuWrapper::VpuFillDecoderBuffer(MSIMX6VPUH264DecData* d)
 	int size = 0, room = 0, nread = 0;
 	bool_t eof = FALSE;
 	int remaining = 0;
-	uint8_t *bitstream = d->bitstream;
-	int available = d->frameSize;
 	
 	ret = vpu_DecGetBitstreamBuffer(d->handle, &pa_read_ptr, &pa_write_ptr, &space);
 	if (ret != RETCODE_SUCCESS) {

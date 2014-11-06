@@ -95,7 +95,6 @@ extern  "C"
 		Rfc3984Context unpacker;
 		mblk_t *sps;
 		mblk_t *pps;
-		uint8_t *bitstream;
 		int bitstream_size;
 		unsigned int packet_num;
 		bool_t first_image_decoded;
@@ -103,7 +102,6 @@ extern  "C"
 		MSPicture outbuf;
 		mblk_t *yuv_msg;
 		bool_t shutdown;
-		int frameSize;
 	} MSIMX6VPUH264DecData;
 
 enum VpuCommandEnum {
@@ -126,6 +124,7 @@ class VpuWrapper;
 
 class VpuCommand {
 public:
+	VpuCommand(VpuCommandEnum cmd, void *d, VpuCommandCallback cb, void *param, int param2);
 	VpuCommand(VpuCommandEnum cmd, void *d, VpuCommandCallback cb, void *param);
 	void* Run(VpuWrapper *wrapper);
 	const char *ToString();
@@ -134,6 +133,7 @@ public:
 private:
 	VpuCommandEnum command;
 	void *data, *extraParam;
+	int extraParam2;
 	VpuCommandCallback callback;
 };
 
@@ -161,7 +161,7 @@ private:
 	int VpuAllocEncoderBuffer(MSIMX6VPUH264EncData *d);
 	int VpuAllocDecoderBuffer(MSIMX6VPUH264DecData *d);
 	int VpuReadEncoderBuffer(MSIMX6VPUH264EncData *d, MSQueue *nalus);
-	int VpuFillDecoderBuffer(MSIMX6VPUH264DecData *d);
+	int VpuFillDecoderBuffer(MSIMX6VPUH264DecData *d, uint8_t *bitstream, int size);
 	int VpuFillEncoderBuffer(MSIMX6VPUH264EncData *d, MSPicture *pic);
 	void VpuCloseEncoder(MSIMX6VPUH264EncData *d);
 	void VpuCloseDecoder(MSIMX6VPUH264DecData *d);
