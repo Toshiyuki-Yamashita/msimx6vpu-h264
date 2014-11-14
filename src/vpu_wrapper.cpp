@@ -709,7 +709,6 @@ int VpuWrapper::VpuFillDecoderBuffer(MSIMX6VPUH264DecData* d, uint8_t *bitstream
 	PhysicalAddress pa_read_ptr = 0, pa_write_ptr = 0;
 	int size = 0, room = 0, nread = 0;
 	bool_t eof = FALSE;
-	int remaining = 0;
 	
 	ret = vpu_DecGetBitstreamBuffer(d->handle, &pa_read_ptr, &pa_write_ptr, &space);
 	if (ret != RETCODE_SUCCESS) {
@@ -717,21 +716,26 @@ int VpuWrapper::VpuFillDecoderBuffer(MSIMX6VPUH264DecData* d, uint8_t *bitstream
 		return -1;
 	}
 
-	if (space <= 0) {
-		ms_warning("[vpu_wrapper] decoder space %lu <= 0", space);
-		return 0;
+	if (available > 0) {
+		if (space < available)
+			return 0;
+		
+		size = available;
 	} else {
 		size = ((space >> 9) << 9);
+	}
+		
+	if (size <= 0) {
+		ms_warning("[vpu_wrapper] decoder space %lu <= 0", space);
+		return 0;
 	}
 	
 	target_addr = d->virt_buf_addr + (pa_write_ptr - d->phy_buf_addr);
 	if (target_addr + size > d->virt_buf_addr + STREAM_BUF_SIZE) {
 		room = (d->virt_buf_addr + STREAM_BUF_SIZE) - target_addr;
-		if (available > room) {
-			remaining = available - room;
-			available = room;
-		}
-		nread = msimx6vpu_h264_read(bitstream, (void *)target_addr, available);
+		// Fill end of buffer with 0, so the frame won't be cut in the middle, it will be written at once at the beginning of the buffer
+		nread = msimx6vpu_h264_read(0, (void *)target_addr, room);
+		
 		if (nread <= 0) {
 			ms_warning("[vpu_wrapper] decoder EOF or error (1)");
 			if (nread < 0) {
@@ -744,15 +748,13 @@ int VpuWrapper::VpuFillDecoderBuffer(MSIMX6VPUH264DecData* d, uint8_t *bitstream
 			}
 			eof = TRUE;
 		} else {
-			if (nread != available || remaining == 0) {
-				if (nread != available) {
-					ms_warning("[vpu_wrapper] vpu_fill_decoder_buffer: unable to fill the requested size");
-				}
+			if (nread != room) {
+				ms_warning("[vpu_wrapper] vpu_fill_decoder_buffer: unable to fill the requested size");
 				goto update;
 			}
-			
+
 			space = nread;
-			nread = msimx6vpu_h264_read(bitstream, (void *)d->virt_buf_addr, remaining);
+			nread = msimx6vpu_h264_read(bitstream, (void *)d->virt_buf_addr, size);
 			if (nread <= 0) {
 				ms_warning("[vpu_wrapper] decoder EOF or error (2)");
 				if (nread < 0) {
@@ -769,7 +771,7 @@ int VpuWrapper::VpuFillDecoderBuffer(MSIMX6VPUH264DecData* d, uint8_t *bitstream
 			nread += space;
 		}
 	} else {
-		nread = msimx6vpu_h264_read(bitstream, (void *)target_addr, available);
+		nread = msimx6vpu_h264_read(bitstream, (void *)target_addr, size);
 		if (nread <= 0) {
 			ms_warning("[vpu_wrapper] decoder EOF or error (3)");
 			if (nread < 0) {
