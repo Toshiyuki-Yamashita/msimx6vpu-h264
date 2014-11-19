@@ -734,7 +734,8 @@ int VpuWrapper::VpuFillDecoderBuffer(MSIMX6VPUH264DecData* d, uint8_t *bitstream
 	if (target_addr + size > d->virt_buf_addr + STREAM_BUF_SIZE) {
 		room = (d->virt_buf_addr + STREAM_BUF_SIZE) - target_addr;
 		// Fill end of buffer with 0, so the frame won't be cut in the middle, it will be written at once at the beginning of the buffer
-		nread = msimx6vpu_h264_read(0, (void *)target_addr, room);
+		memset((void *)target_addr, 0, room);
+		nread += room;
 		
 		if (nread <= 0) {
 			ms_warning("[vpu_wrapper] decoder EOF or error (1)");
