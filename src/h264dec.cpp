@@ -178,7 +178,6 @@ void decoder_decode_frame_callback(void *v, int result) {
 void decoder_close_callback(void *v, int result) {
 	MSIMX6VPUH264DecData *d = (MSIMX6VPUH264DecData *)v;
 	ms_message("[msimx6vpu_h264_dec] close callback");
-	d->configure_done = FALSE;
 }
 
 void decoder_uninit_callback(void *v, int result) {

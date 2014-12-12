@@ -44,6 +44,22 @@ void encoder_open_callback(void *v, int result) {
 	}
 }
 
+void encoder_restart_open_callback (void *v, int result) {
+	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData *)v;
+	ms_message("[msimx6vpu_h264_enc] restart open callback with result %i", result);
+	d->restart_started = FALSE;
+	ms_filter_unlock(d->filter);
+	
+	if (result == -3) {
+		if (!VpuWrapper::Instance()->IsVpuInitialized()) {
+			VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(VPU_INIT, NULL, NULL, NULL));
+		}
+		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(OPEN_ENCODER, d, &encoder_open_callback, NULL));
+	} else  if (result == -1) {
+		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(OPEN_ENCODER, d, &encoder_open_callback, NULL));
+	}
+}
+
 void encoder_init_callback(void *v, int result) {
 	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData *)v;
 	
@@ -87,7 +103,14 @@ void encoder_encode_frame_callback(void *v, int result) {
 void encoder_close_callback(void *v, int result) {
 	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData *)v;
 	ms_message("[msimx6vpu_h264_enc] close callback");
-	d->configure_done = FALSE;
+	d->init_command_queued = FALSE;
+}
+
+void encoder_restart_close_callback (void *v, int result) {
+	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData *)v;
+	ms_message("[msimx6vpu_h264_enc] restart close callback");
+	d->init_command_queued = FALSE;
+	ms_filter_lock(d->filter);
 }
 
 void encoder_uninit_callback(void *v, int result) {
@@ -129,6 +152,7 @@ static void msimx6vpu_h264_enc_init(MSFilter *f) {
 	d->encode_frame_command_queued = FALSE;
 	d->init_command_queued = FALSE;
 	d->shutdown = FALSE;
+	d->restart_started = FALSE;
 	d->mode = 0;
 	d->latest_src_buffer = ENCODER_SRC_BUFFERS - 1;
 	d->filter = f;
@@ -203,7 +227,7 @@ static void msimx6vpu_h264_enc_process(MSFilter *f) {
 				d->init_command_queued = TRUE;
 			}
 			
-			if (d->configure_done && !d->encode_frame_command_queued) {
+			if (d->configure_done && !d->init_command_queued && !d->restart_started && !d->encode_frame_command_queued) {
 				msimx6vpu_h264_enc_fill_encoder_buffer(d, &pic);
 			}
 		}
@@ -256,12 +280,9 @@ static int msimx6vpu_h264_enc_set_configuration(MSFilter *f, void *arg) {
 	}
 	if (d->handle) {
 		ms_message("[msimx6vpu_h264_enc] reconfiguring encoder");
-		ms_filter_lock(f);
-		d->configure_done = FALSE;
-		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(CLOSE_ENCODER, d, &encoder_close_callback, NULL));
-		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(OPEN_ENCODER, d, &encoder_open_callback, NULL));
-		ms_message("[msimx6vpu_h264_enc] encoder restart is done");
-		ms_filter_unlock(f);
+		d->restart_started = TRUE;
+		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(CLOSE_ENCODER, d, &encoder_restart_close_callback, NULL));
+		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(OPEN_ENCODER, d, &encoder_restart_open_callback, NULL));
 	}
 
 	ms_message("[msimx6vpu_h264_enc] Video configuration set: bitrate=%dbits/s, fps=%f, vsize=%dx%d", d->vconf.required_bitrate, d->vconf.fps, d->vconf.vsize.width, d->vconf.vsize.height);

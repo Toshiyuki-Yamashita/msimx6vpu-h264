@@ -68,7 +68,7 @@ const char* VpuCommand::ToString()
 void* VpuCommand::Run(VpuWrapper *wrapper)
 {
 	int result = -10;
-// 	if (wrapper->debugModeEnabled) ms_message("[vpu_wrapper] running command %s", ToString());
+ 	if (wrapper->debugModeEnabled) ms_message("[vpu_wrapper] running command %s", ToString());
 	switch (command) {
 		case VPU_INIT:
 			result = wrapper->VpuInit();
@@ -153,7 +153,7 @@ void VpuWrapper::VpuQueueCommand(VpuCommand *command)
 {
 	ms_mutex_lock(&mutex);
 	commandQueue.push(command);
-// 	if (debugModeEnabled) ms_message("[vpu_wrapper] command queued %s", command->ToString());
+ 	if (debugModeEnabled) ms_message("[vpu_wrapper] command queued %s", command->ToString());
 	
 	if (!threadRunning) {
 		threadRunning = TRUE;
@@ -174,7 +174,7 @@ VpuCommand* VpuWrapper::VpuDequeueCommand()
 	command = commandQueue.front();
 	commandQueue.pop();
 	ms_mutex_unlock(&mutex);
-// 	if (debugModeEnabled) ms_message("[vpu_wrapper] command dequeued %s", command->ToString());
+ 	if (debugModeEnabled) ms_message("[vpu_wrapper] command dequeued %s", command->ToString());
 	return command;
 }
 
@@ -1073,6 +1073,7 @@ void VpuWrapper::VpuCloseDecoder(MSIMX6VPUH264DecData* d)
 	}
 		
 	if (d->configure_done) {
+		d->configure_done = FALSE;
 		if (d->fbpool && d->regfbcount > 0) {
 			for (i = 0; i < d->regfbcount; i++) {
 				if (debugModeEnabled) ms_warning("[vpu_wrapper] dec freed buffer %i", i);
@@ -1118,6 +1119,7 @@ void VpuWrapper::VpuCloseEncoder(MSIMX6VPUH264EncData* d)
 	}
 	
 	if (d->configure_done) {
+		d->configure_done = FALSE;
 		if (d->sps_mblkt) {
 			ms_free(d->sps_mblkt);
 		}
