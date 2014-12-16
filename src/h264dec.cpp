@@ -282,7 +282,11 @@ static void msimx6vpu_h264_dec_postprocess(MSFilter *f) {
 	
 	d->shutdown = TRUE;
 	rfc3984_uninit(&d->unpacker);
-	VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(CLOSE_DECODER, d, &decoder_close_callback, NULL));
+	
+	if (d->handle) {
+		ms_message("[msimx6vpu_h264_dec] shutting down decoder");
+		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(CLOSE_DECODER, d, &decoder_close_callback, NULL));
+	}
 }
 
 static void msimx6vpu_h264_dec_uninit(MSFilter *f) {

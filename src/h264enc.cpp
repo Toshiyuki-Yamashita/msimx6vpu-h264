@@ -23,7 +23,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 	{ required_bitrate, bitrate_limit, { MS_VIDEO_SIZE_ ## resolution ## _W, MS_VIDEO_SIZE_ ## resolution ## _H }, fps, cpu_count, NULL }
 
 static const MSVideoConfiguration h264_conf_list[] = {
-	MS_H264_CONF( 384000,   600000, VGA,  15, 1),
+	MS_H264_CONF( 384000,   600000, VGA,  25, 1),
 	MS_H264_CONF( 384000,   512000, CIF,  15, 1),
 	MS_H264_CONF( 256000,   384000, QVGA, 15, 1),
 	MS_H264_CONF( 128000,   256000, QCIF, 15, 1),
@@ -249,7 +249,11 @@ static void msimx6vpu_h264_enc_postprocess(MSFilter *f) {
 	d->packer = NULL;
 	d->shutdown = TRUE;
 	ms_queue_destroy(d->nalus);
-	VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(CLOSE_ENCODER, d, &encoder_close_callback, NULL));
+	
+	if (d->handle) {
+		ms_message("[msimx6vpu_h264_enc] shutting down encoder");
+		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(CLOSE_ENCODER, d, &encoder_close_callback, NULL));
+	}
 }
 
 
