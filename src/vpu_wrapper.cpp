@@ -23,6 +23,10 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define STREAM_BUF_SIZE		0x800000
 #define KBPS				1000
 
+#define ROTATION 0
+#define V_MIRROR 0
+#define H_MIRROR 0
+
 VpuCommand::VpuCommand(VpuCommandEnum cmd, void *d, VpuCommandCallback cb, void *param, int param2)
  : command(cmd), data(d), callback(cb), extraParam(param), extraParam2(param2)
 {
@@ -462,6 +466,33 @@ int VpuWrapper::VpuInitEncoder(MSIMX6VPUH264EncData* d)
 	if (d->configure_done) {
 		ms_warning("[vpu_wrapper] encoder already initialized, skip");
 		return -3;
+	}
+	
+	if (ROTATION != 0) {
+		int rotation_angle = ROTATION;
+		ret = vpu_EncGiveCommand(d->handle, ENABLE_ROTATION, NULL);
+		ret = vpu_EncGiveCommand(d->handle, SET_ROTATION_ANGLE, &rotation_angle);
+		if (ret != RETCODE_SUCCESS) {
+			ms_error("[vpu_wrapper] vpu_EncGiveCommand SET_ROTATION_ANGLE %i error: %i", ROTATION, ret);
+		}
+	}
+	
+	if (V_MIRROR != 0 || H_MIRROR != 0) {
+		MirrorDirection mirdir = MIRDIR_NONE;
+		ret = vpu_EncGiveCommand(d->handle, ENABLE_MIRRORING, NULL);
+			
+		if (V_MIRROR != 0 && H_MIRROR != 0) {
+			mirdir = MIRDIR_HOR_VER;
+		} else if (V_MIRROR != 0) {
+			mirdir = MIRDIR_VER;
+		} else if (H_MIRROR != 0) {
+			mirdir = MIRDIR_HOR;
+		}
+		
+		ret = vpu_EncGiveCommand(d->handle, SET_MIRROR_DIRECTION, &mirdir);
+		if (ret != RETCODE_SUCCESS) {
+			ms_error("[vpu_wrapper] vpu_EncGiveCommand SET_MIRROR_DIRECTION error: %i", ret);
+		}
 	}
 
 	ret = vpu_EncGetInitialInfo(d->handle, &initinfo);
