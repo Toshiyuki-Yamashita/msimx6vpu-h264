@@ -1029,7 +1029,8 @@ int VpuWrapper::VpuEncodeFrame(MSIMX6VPUH264EncData* d, MSQueue *nalus)
 	EncParamSet header = {0};
 	int loop = 0;
 	
-	params.sourceFrame = &d->fbs[d->src_buffer_index + d->latest_src_buffer];
+	d->last_encoded_buffer = (d->last_encoded_buffer + 1) % ENCODER_SRC_BUFFERS;
+	params.sourceFrame = &d->fbs[d->src_buffer_index + d->last_encoded_buffer];
 	params.enableAutoSkip = 1;
 	if (d->generate_keyframe) {
 		params.forceIPicture = 1;

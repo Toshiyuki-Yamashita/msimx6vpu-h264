@@ -68,8 +68,9 @@ extern  "C"
 		int mode;
 		MSQueue *nalus;
 		bool_t shutdown;
-		int latest_src_buffer;
+		int last_filled_buffer;
 		bool_t restart_started;
+		int last_encoded_buffer;
 	} MSIMX6VPUH264EncData;
 
 	typedef struct _MSIMX6VPUH264DecData {
