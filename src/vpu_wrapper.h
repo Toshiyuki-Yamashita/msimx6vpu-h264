@@ -144,9 +144,11 @@ class VpuWrapper {
 	
 public:
 	static VpuWrapper* Instance();
+	static void CheckUnInitStatus();
 	bool_t IsVpuInitialized();
 	void VpuQueueCommand(VpuCommand *command);
 	VpuCommand* VpuDequeueCommand();
+	void CheckIfWaitingThreadForUnInitStatus();
 	~VpuWrapper();
 	
 	bool_t isVpuInitialized;
@@ -175,7 +177,11 @@ private:
 	ms_thread_t thread;
 	int encodeFrameCommandCount;
 	int decodeFrameCommandCount;
-	bool_t encoderClosed, decoderClosed;
+	int encoderCount, decoderCount;
+	
+	static ms_mutex_t uninit_mutex;
+	static ms_cond_t uninit_cond;
+	bool_t notify_me_on_thread_exit;
 };
 
 static VpuWrapper *vpuWrapperInstance;

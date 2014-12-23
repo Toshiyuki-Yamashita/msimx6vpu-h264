@@ -117,11 +117,6 @@ void encoder_uninit_callback(void *v, int result) {
 	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData *)v;
 	ms_message("[msimx6vpu_h264_enc] uninit callback");
 	ms_free(d);
-	
-	if (result == 0 && vpuWrapperInstance) {
-		ms_message("[msimx6vpu_h264_enc] deleting vpu wrapper instance");
-		delete vpuWrapperInstance;
-	}
 }
 
 /******************************************************************************
@@ -158,10 +153,6 @@ static void msimx6vpu_h264_enc_init(MSFilter *f) {
 	d->last_encoded_buffer = 0;
 	d->filter = f;
 	f->data = d;
-}
-
-static void msimx6vpu_h264_enc_preprocess(MSFilter *f) {
-	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData*)f->data;
 	
 	if (!d->handle) {
 		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(OPEN_ENCODER, d, &encoder_open_callback, NULL));
@@ -172,6 +163,10 @@ static void msimx6vpu_h264_enc_preprocess(MSFilter *f) {
 	rfc3984_enable_stap_a(d->packer, FALSE);
 	ms_video_starter_init(&d->starter);
 	d->nalus = ms_queue_new(f, NULL, NULL, NULL);
+}
+
+static void msimx6vpu_h264_enc_preprocess(MSFilter *f) {
+	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData*)f->data;
 }
 
 static int msimx6vpu_h264_enc_fill_encoder_buffer(MSIMX6VPUH264EncData *d, MSPicture *pic) {
@@ -245,6 +240,11 @@ static void msimx6vpu_h264_enc_process(MSFilter *f) {
 
 static void msimx6vpu_h264_enc_postprocess(MSFilter *f) {
 	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData*)f->data;
+}
+
+
+static void msimx6vpu_h264_enc_uninit(MSFilter *f) {
+	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData *)f->data;
 	
 	rfc3984_destroy(d->packer);
 	d->packer = NULL;
@@ -255,12 +255,9 @@ static void msimx6vpu_h264_enc_postprocess(MSFilter *f) {
 		ms_message("[msimx6vpu_h264_enc] shutting down encoder");
 		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(CLOSE_ENCODER, d, &encoder_close_callback, NULL));
 	}
-}
-
-
-static void msimx6vpu_h264_enc_uninit(MSFilter *f) {
-	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData *)f->data;
+	
 	VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(VPU_UNINIT, d, &encoder_uninit_callback, NULL));
+	VpuWrapper::CheckUnInitStatus();
 }
 
 /******************************************************************************

@@ -43,7 +43,7 @@ const char* VpuCommand::ToString()
 {
 	switch (command) {
 		case VPU_INIT:
-			return "INIT";
+			return "VPU_INIT";
 		case VPU_UNINIT:
 			return "VPU_UNINIT";
 		case OPEN_DECODER:
@@ -132,6 +132,38 @@ VpuWrapper* VpuWrapper::Instance()
 	return vpuWrapperInstance;
 }
 
+void VpuWrapper::CheckUnInitStatus()
+{
+	bool_t done = FALSE;
+	
+	ms_mutex_lock(&uninit_mutex);	
+	
+	vpuWrapperInstance->notify_me_on_thread_exit = TRUE;
+	ms_cond_wait(&uninit_cond, &uninit_mutex);
+	
+	if (!vpuWrapperInstance->isVpuInitialized) {
+		pthread_join(vpuWrapperInstance->thread, NULL);
+		done = TRUE;
+	}
+	
+	ms_mutex_unlock(&uninit_mutex);
+	
+	if (done == TRUE) {
+		delete vpuWrapperInstance;
+		vpuWrapperInstance = NULL;
+	}
+}
+
+void VpuWrapper::CheckIfWaitingThreadForUnInitStatus()
+{
+	ms_mutex_lock(&uninit_mutex);
+	if (notify_me_on_thread_exit) {
+		ms_cond_signal(&uninit_cond);
+		notify_me_on_thread_exit = FALSE;
+	}
+	ms_mutex_unlock(&uninit_mutex);
+}
+
 void* run(VpuWrapper *wrapper)
 {
 	if (wrapper->debugModeEnabled) ms_message("[vpu_wrapper] thread is looping");
@@ -143,12 +175,13 @@ void* run(VpuWrapper *wrapper)
 		} else {
 			ms_usleep(50);
 		}
+		wrapper->CheckIfWaitingThreadForUnInitStatus();
 	}
 	if (wrapper->debugModeEnabled) ms_message("[vpu_wrapper] thread loop has stopped");
 	ms_thread_exit(NULL);
 }
 
-VpuWrapper::VpuWrapper() : isVpuInitialized(FALSE), debugModeEnabled(TRUE), threadRunning(FALSE), encodeFrameCommandCount(0), decodeFrameCommandCount(0), encoderClosed(TRUE), decoderClosed(TRUE)
+VpuWrapper::VpuWrapper() : isVpuInitialized(FALSE), debugModeEnabled(TRUE), threadRunning(FALSE), encodeFrameCommandCount(0), decodeFrameCommandCount(0), encoderCount(0), decoderCount(0), notify_me_on_thread_exit(FALSE)
 {
 	if (debugModeEnabled) ms_message("[vpu_wrapper] vpu wrapper created");
 }
@@ -272,7 +305,7 @@ int VpuWrapper::VpuOpenDecoder(MSIMX6VPUH264DecData *d)
 	d->virt_buf_addr = d->bitstream_mem.virt_uaddr;
 	d->phy_buf_addr = d->bitstream_mem.phy_addr;
 	d->phy_ps_buf = d->ps_mem.phy_addr;
-	decoderClosed = FALSE;
+	decoderCount += 1;
 	if (debugModeEnabled) ms_message("[vpu_wrapper] vpu decoder openned");
 	return 0;
 	
@@ -351,7 +384,7 @@ int VpuWrapper::VpuOpenEncoder(MSIMX6VPUH264EncData* d)
 	}
 
 	d->handle = handle;
-	encoderClosed = FALSE;
+	encoderCount += 1;
 	if (debugModeEnabled) ms_message("[vpu_wrapper] vpu encoder openned");
 	return 0;
 	
@@ -1127,7 +1160,7 @@ void VpuWrapper::VpuCloseDecoder(MSIMX6VPUH264DecData* d)
 	}
 	
 	d->handle = NULL;
-	decoderClosed = TRUE;
+	decoderCount -= 1;
 	if (debugModeEnabled) ms_message("[vpu_wrapper] vpu decoder closed");
 }
 
@@ -1180,7 +1213,7 @@ void VpuWrapper::VpuCloseEncoder(MSIMX6VPUH264EncData* d)
 	}
 	
 	d->handle = NULL;
-	encoderClosed = TRUE;
+	encoderCount -= 1;
 	if (debugModeEnabled) ms_message("[vpu_wrapper] vpu encoder closed");
 }
 
@@ -1191,8 +1224,12 @@ int VpuWrapper::VpuUnInit()
 		return -1;
 	}
 	
-	if (!decoderClosed || !encoderClosed) {
-		if (debugModeEnabled) ms_warning("[vpuwrapper] Encoder or decoder not closed yet");
+	if (encoderCount > 0) {
+		if (debugModeEnabled) ms_warning("[vpuwrapper] There is still %i encoder(s) running", encoderCount);
+		return -2;
+	}
+	if (decoderCount > 0) {
+		if (debugModeEnabled) ms_warning("[vpuwrapper] There is still %i decoder(s) running", decoderCount);
 		return -2;
 	}
 	
@@ -1200,16 +1237,12 @@ int VpuWrapper::VpuUnInit()
 	isVpuInitialized = FALSE;
 	if (debugModeEnabled) ms_message("[vpu_wrapper] UnInit done");
 	ms_message("[vpu_wrapper] %i decode frame commands, %i encode frame commands", decodeFrameCommandCount, encodeFrameCommandCount);
+	threadRunning = FALSE;
 	return 0;
 }
 
 VpuWrapper::~VpuWrapper()
 {
-	if (thread) {
-		ms_thread_join(thread, NULL);
-		if (debugModeEnabled) ms_message("[vpu_wrapper] thread has joined.");
-	}
-	
 	ms_mutex_destroy(&mutex);
 	if (debugModeEnabled) ms_message("[vpu_wrapper] vpu wrapper destroyed");
 }

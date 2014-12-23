@@ -188,11 +188,6 @@ void decoder_uninit_callback(void *v, int result) {
 	if (d->pps) freemsg(d->pps);
 	if (d->yuv_msg) freemsg(d->yuv_msg);
 	ms_free(d);
-	
-	if (result == 0 && vpuWrapperInstance) {
-		ms_message("[msimx6vpu_h264_dec] deleting vpu wrapper instance");
-		delete vpuWrapperInstance;
-	}
 }
 
 static void msimx6vpu_h264_dec_init(MSFilter *f) {
@@ -218,15 +213,15 @@ static void msimx6vpu_h264_dec_init(MSFilter *f) {
 	d->packet_num = 0;
 	d->filter = f;
 	f->data = d;
-}
-
-static void msimx6vpu_h264_dec_preprocess(MSFilter *f) {
-	MSIMX6VPUH264DecData *d = (MSIMX6VPUH264DecData*)f->data;
 	
 	if (!d->handle) {
 		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(OPEN_DECODER, d, &decoder_open_callback, NULL));
 	}
 	rfc3984_init(&d->unpacker);
+}
+
+static void msimx6vpu_h264_dec_preprocess(MSFilter *f) {
+	MSIMX6VPUH264DecData *d = (MSIMX6VPUH264DecData*)f->data;
 }
 
 static void msimx6vpu_h264_dec_process(MSFilter *f) {
@@ -279,6 +274,10 @@ static void msimx6vpu_h264_dec_process(MSFilter *f) {
 
 static void msimx6vpu_h264_dec_postprocess(MSFilter *f) {
 	MSIMX6VPUH264DecData *d = (MSIMX6VPUH264DecData*)f->data;
+}
+
+static void msimx6vpu_h264_dec_uninit(MSFilter *f) {
+	MSIMX6VPUH264DecData *d = (MSIMX6VPUH264DecData *)f->data;
 	
 	d->shutdown = TRUE;
 	rfc3984_uninit(&d->unpacker);
@@ -287,11 +286,9 @@ static void msimx6vpu_h264_dec_postprocess(MSFilter *f) {
 		ms_message("[msimx6vpu_h264_dec] shutting down decoder");
 		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(CLOSE_DECODER, d, &decoder_close_callback, NULL));
 	}
-}
-
-static void msimx6vpu_h264_dec_uninit(MSFilter *f) {
-	MSIMX6VPUH264DecData *d = (MSIMX6VPUH264DecData *)f->data;
+	
 	VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(VPU_UNINIT, d, &decoder_uninit_callback, NULL));
+	VpuWrapper::CheckUnInitStatus();
 }
 
 /******************************************************************************
