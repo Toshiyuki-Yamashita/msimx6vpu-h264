@@ -131,10 +131,10 @@ void vpu_wrapper_init_class(void) {
 	VpuWrapper::init();
 }
 
-static void VpuWrapper::init()
+void VpuWrapper::init()
 {
-	ms_mutex_init(&uninit_mutex);
-	ms_cond_init(&uninit_cond);
+	ms_mutex_init(&uninit_mutex, NULL);
+	ms_cond_init(&uninit_cond, NULL);
 }
 
 VpuWrapper* VpuWrapper::Instance()
