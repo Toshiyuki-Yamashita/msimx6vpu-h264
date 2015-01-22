@@ -150,6 +150,7 @@ public:
 	VpuCommand* VpuDequeueCommand();
 	void CheckIfWaitingThreadForUnInitStatus();
 	~VpuWrapper();
+	static void init();
 	
 	bool_t isVpuInitialized;
 	bool_t debugModeEnabled;
