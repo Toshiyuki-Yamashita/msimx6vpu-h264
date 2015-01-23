@@ -127,8 +127,10 @@ VpuCommand::~VpuCommand()
 ms_mutex_t VpuWrapper::uninit_mutex;
 ms_cond_t VpuWrapper::uninit_cond;
 
-void vpu_wrapper_init_class(void) {
-	VpuWrapper::init();
+extern "C" {
+	void vpu_wrapper_init_class(void) {
+		VpuWrapper::init();
+	}
 }
 
 void VpuWrapper::init()
