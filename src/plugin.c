@@ -21,12 +21,14 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 extern void libmsimx6vpu_h264_init_enc(void);
 extern void libmsimx6vpu_h264_init_dec(void);
+extern void vpu_wrapper_init_class(void);
 
 /******************************************************************************
  * Init routine																  *
  *****************************************************************************/
 
 MS2_PUBLIC void libmsimx6vpu_h264_init(void) {
+	vpu_wrapper_init_class();
 	libmsimx6vpu_h264_init_enc();
 	libmsimx6vpu_h264_init_dec();
 }
