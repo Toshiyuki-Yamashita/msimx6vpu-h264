@@ -198,7 +198,7 @@ void* run(VpuWrapper *wrapper)
 
 VpuWrapper::VpuWrapper() : isVpuInitialized(FALSE), debugModeEnabled(TRUE), threadRunning(FALSE), encodeFrameCommandCount(0), decodeFrameCommandCount(0), encoderCount(0), decoderCount(0), notify_me_on_thread_exit(FALSE)
 {
-	ms_mutex_init(&mutex);
+	ms_mutex_init(&mutex, NULL);
 	if (debugModeEnabled) ms_message("[vpu_wrapper] vpu wrapper created");
 }
 
