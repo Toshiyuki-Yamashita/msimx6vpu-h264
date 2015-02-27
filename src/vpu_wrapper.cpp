@@ -1248,6 +1248,10 @@ int VpuWrapper::VpuUnInit()
 		if (debugModeEnabled) ms_warning("[vpuwrapper] There is still %i decoder(s) running", decoderCount);
 		return -2;
 	}
+	if (commandQueue.size() > 0) {
+		if (debugModeEnabled) ms_warning("[vpuwrapper] There is still at least one job in the queue (=%i), possibly an OPEN command, so let's skip the uninit", commandQueue.size());
+		return -3;
+	}
 	
 	vpu_UnInit();
 	isVpuInitialized = FALSE;
