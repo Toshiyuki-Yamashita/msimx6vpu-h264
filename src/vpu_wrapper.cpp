@@ -1150,10 +1150,11 @@ void VpuWrapper::VpuCloseDecoder(MSIMX6VPUH264DecData* d)
 		IOFreePhyMem(&d->ps_mem);
 		IOFreeVirtMem(&d->bitstream_mem);
 		IOFreePhyMem(&d->bitstream_mem);
-		IOFreePhyMem(&d->slice_mem);
 	}
 		
 	if (d->configure_done) {
+		IOFreePhyMem(&d->slice_mem);
+		
 		d->configure_done = FALSE;
 		if (d->fbpool && d->regfbcount > 0) {
 			for (i = 0; i < d->regfbcount; i++) {
