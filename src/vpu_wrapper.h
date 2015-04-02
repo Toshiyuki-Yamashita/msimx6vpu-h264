@@ -104,6 +104,7 @@ extern  "C"
 		MSPicture outbuf;
 		mblk_t *yuv_msg;
 		bool_t shutdown;
+		MSYuvBufAllocator *yuvBufAllocator;
 	} MSIMX6VPUH264DecData;
 
 enum VpuCommandEnum {

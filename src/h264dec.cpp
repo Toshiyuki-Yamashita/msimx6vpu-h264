@@ -187,6 +187,7 @@ void decoder_uninit_callback(void *v, int result) {
 	if (d->sps) freemsg(d->sps);
 	if (d->pps) freemsg(d->pps);
 	if (d->yuv_msg) freemsg(d->yuv_msg);
+	if (d->yuvBufAllocator) ms_yuv_buf_allocator_free(d->yuvBufAllocator);
 	ms_free(d);
 }
 
@@ -205,6 +206,7 @@ static void msimx6vpu_h264_dec_init(MSFilter *f) {
 	d->first_image_decoded = FALSE;
 	d->decode_frame_command_queued = FALSE;
 	d->shutdown = FALSE;
+	d->yuvBufAllocator = ms_yuv_buf_allocator_new();
 	
 	if (!VpuWrapper::Instance()->IsVpuInitialized()) {
 		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(VPU_INIT, NULL, NULL, NULL));

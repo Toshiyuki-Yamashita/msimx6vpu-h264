@@ -983,7 +983,7 @@ static void frame_to_mblkt(MSIMX6VPUH264DecData *d, int index) {
 		freemsg(d->yuv_msg);
 	}
 	
-	d->yuv_msg = ms_yuv_buf_alloc(&d->outbuf, d->picwidth, d->picheight);
+	d->yuv_msg = ms_yuv_buf_allocator_get(d->yuvBufAllocator, &d->outbuf, d->picwidth, d->picheight);
 	roi.width = d->outbuf.w;
 	roi.height = d->outbuf.h;
 	
