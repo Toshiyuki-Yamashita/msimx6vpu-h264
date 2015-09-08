@@ -118,7 +118,9 @@ enum VpuCommandEnum {
 	CLOSE_ENCODER,
 	CLOSE_DECODER,
 	ENCODE_FRAME,
-	DECODE_FRAME
+	DECODE_FRAME,
+	SET_ENC_BITRATE,
+	SET_ENC_FRAME_RATE
 };
 
 typedef void (*VpuCommandCallback) (void *, int);
