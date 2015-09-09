@@ -289,7 +289,7 @@ static int msimx6vpu_h264_enc_set_br(MSFilter *f, void *arg) {
 		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(SET_ENC_BITRATE, d, &encoder_set_bitrate_callback, NULL));
 	} else {
 		MSVideoConfiguration best_vconf = ms_video_find_best_configuration_for_bitrate(d->vconf_list, br, 1);
-		if (best_vconf != &d->vconf) memcpy(&d->vconf, best_vconf, sizeof(MSVideoConfiguration));
+		if (&best_vconf != &d->vconf) memcpy(&d->vconf, &best_vconf, sizeof(MSVideoConfiguration));
 		if (d->vconf.required_bitrate > d->vconf.bitrate_limit) {
 			d->vconf.required_bitrate = d->vconf.bitrate_limit;
 		}
