@@ -254,13 +254,13 @@ static void msimx6vpu_h264_dec_process(MSFilter *f) {
 				VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(CLOSE_DECODER, d, &decoder_close_callback, NULL));
 				VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(OPEN_DECODER, d, &decoder_open_callback, NULL));
 			}
-
-			if (d->handle != NULL) {
-				VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(FILL_DECODER_BUFFER, d, &decoder_fill_buffer_callback, bitstream, size));
-			}
 			
 			if (!d->configure_done && d->handle != NULL) {
 				VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(INIT_DECODER, d, &decoder_init_callback, NULL));
+			}
+
+			if (d->handle != NULL) {
+				VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(FILL_DECODER_BUFFER, d, &decoder_fill_buffer_callback, bitstream, size));
 			}
 		}
 		d->packet_num++;
