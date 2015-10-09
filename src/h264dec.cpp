@@ -253,6 +253,7 @@ static void msimx6vpu_h264_dec_process(MSFilter *f) {
 				ms_message("[msimx6vpu_h264_dec] need reinit");
 				VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(CLOSE_DECODER, d, &decoder_close_callback, NULL));
 				VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(OPEN_DECODER, d, &decoder_open_callback, NULL));
+				VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(INIT_DECODER, d, &decoder_init_callback, NULL));
 			}
 			
 			if (!d->configure_done && d->handle != NULL) {
