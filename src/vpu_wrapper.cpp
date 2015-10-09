@@ -75,6 +75,7 @@ const char* VpuCommand::ToString()
 
 void* VpuCommand::Run(VpuWrapper *wrapper)
 {
+	int param = 0;
 	int result = -10;
 	MSIMX6VPUH264EncData *encData = NULL;
  	if (wrapper->debugModeEnabled) ms_message("[vpu_wrapper] running command %s", ToString());
@@ -117,11 +118,13 @@ void* VpuCommand::Run(VpuWrapper *wrapper)
 			break;
 		case SET_ENC_BITRATE:
 			encData = (MSIMX6VPUH264EncData *) data;
-			result = vpu_EncGiveCommand(encData->handle, ENC_SET_BITRATE, &(encData->vconf.required_bitrate));
+			param = (int) encData->vconf.required_bitrate / KBPS;
+			result = vpu_EncGiveCommand(encData->handle, ENC_SET_BITRATE, &param);
 			break;
 		case SET_ENC_FRAME_RATE:
 			encData = (MSIMX6VPUH264EncData *) data;
-			result = vpu_EncGiveCommand(encData->handle, ENC_SET_FRAME_RATE, &(encData->vconf.fps));
+			param = (int) encData->vconf.fps;
+			result = vpu_EncGiveCommand(encData->handle, ENC_SET_FRAME_RATE, &param);
 			break;
 		default:
 			return NULL;
@@ -388,7 +391,7 @@ int VpuWrapper::VpuOpenEncoder(MSIMX6VPUH264EncData* d)
 	oparam.picWidth = d->vconf.vsize.width;
 	oparam.picHeight = d->vconf.vsize.height;
  	oparam.frameRateInfo = (int)d->vconf.fps;
-	oparam.bitRate = d->vconf.bitrate_limit / KBPS;
+	oparam.bitRate = d->vconf.required_bitrate / KBPS;
 	oparam.ringBufferEnable = 1;
 	oparam.chromaInterleave = 0;
 	oparam.slicemode = slicemode;
@@ -1108,9 +1111,10 @@ int VpuWrapper::VpuEncodeFrame(MSIMX6VPUH264EncData* d, MSQueue *nalus)
 	
 	while (vpu_IsBusy()) {
 		ms_usleep(30);
-		vpu_WaitForInt(100);
+		vpu_WaitForInt(200);
 		if (loop >= 20) {
 			vpu_SWReset(d->handle, 0);
+			return -1;
 		}
 		loop++;
 	}

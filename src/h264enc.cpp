@@ -286,6 +286,7 @@ static int msimx6vpu_h264_enc_set_br(MSFilter *f, void *arg) {
 	d->vconf.required_bitrate = br;
 	if (d->handle) {
 		/* Encoding is already ongoing, do not change video size, only bitrate. */
+		ms_message("[msimx6vpu_h264_enc] setting bitrate to %i", br);
 		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(SET_ENC_BITRATE, d, &encoder_set_bitrate_callback, NULL));
 	} else {
 		MSVideoConfiguration best_vconf = ms_video_find_best_configuration_for_bitrate(d->vconf_list, br, 1);
@@ -303,6 +304,7 @@ static int msimx6vpu_h264_enc_set_fps(MSFilter *f, void *arg){
 	float fps = *(float*)arg;
 	d->vconf.fps = fps;
 	if (d->handle) {
+		ms_message("[msimx6vpu_h264_enc] setting fps to %f", fps);
 		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(SET_ENC_FRAME_RATE, d, &encoder_set_framerate_callback, NULL));
 	}
 	return 0;
