@@ -246,7 +246,6 @@ static void msimx6vpu_h264_dec_process(MSFilter *f) {
 			mblk_set_timestamp_info(d->pps, mblk_get_timestamp_info(im));
 			rfc3984_unpack(&d->unpacker, d->sps, &nalus);
 			rfc3984_unpack(&d->unpacker, d->pps, &nalus);
-	{ MS_VIDEO_ENCODER_NOTIFY_PLI,             	msimx6vpu_h264_enc_req_vfu             		},
 			d->sps = NULL;
 			d->pps = NULL;
 		}
