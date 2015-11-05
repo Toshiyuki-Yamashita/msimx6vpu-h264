@@ -106,6 +106,7 @@ extern  "C"
 		bool_t shutdown;
 		MSYuvBufAllocator *yuvBufAllocator;
 		bool_t avpf_enabled;
+		bool_t need_reinit;
 	} MSIMX6VPUH264DecData;
 
 enum VpuCommandEnum {

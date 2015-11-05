@@ -171,11 +171,10 @@ void decoder_decode_frame_callback(void *v, int result) {
 		}
 		
 		ms_queue_put(d->filter->outputs[0], dupmsg(d->yuv_msg));
-	} else {
+	} else if (result == -3) {
 		ms_filter_notify_no_arg(d->filter, MS_VIDEO_DECODER_DECODING_ERRORS);
-		if (d->avpf_enabled) {
-			ms_filter_notify_no_arg(d->filter, MS_VIDEO_DECODER_SEND_PLI);
-		}
+	} else if (result == -10) {
+		d->need_reinit = TRUE;
 	}
 	ms_filter_unlock(d->filter);
 }
@@ -213,6 +212,7 @@ static void msimx6vpu_h264_dec_init(MSFilter *f) {
 	d->shutdown = FALSE;
 	d->yuvBufAllocator = ms_yuv_buf_allocator_new();
 	d->avpf_enabled = FALSE;
+	d->need_reinit = FALSE;
 	
 	if (!VpuWrapper::Instance()->IsVpuInitialized()) {
 		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(VPU_INIT, NULL, NULL, NULL));
@@ -246,17 +246,18 @@ static void msimx6vpu_h264_dec_process(MSFilter *f) {
 			mblk_set_timestamp_info(d->pps, mblk_get_timestamp_info(im));
 			rfc3984_unpack(&d->unpacker, d->sps, &nalus);
 			rfc3984_unpack(&d->unpacker, d->pps, &nalus);
+	{ MS_VIDEO_ENCODER_NOTIFY_PLI,             	msimx6vpu_h264_enc_req_vfu             		},
 			d->sps = NULL;
 			d->pps = NULL;
 		}
 		rfc3984_unpack(&d->unpacker, im, &nalus);
 		if (!ms_queue_empty(&nalus)) {
-			bool_t need_reinit = FALSE;
 			uint8_t* bitstream = (uint8_t*) ms_malloc0(d->bitstream_size);
 			int size = nalusToFrame(d, &nalus, &need_reinit, bitstream);
 			
-			if (need_reinit && d->configure_done) {
+			if (d->need_reinit && d->configure_done) {
 				ms_message("[msimx6vpu_h264_dec] need reinit");
+				d->need_reinit = FALSE;
 				VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(CLOSE_DECODER, d, &decoder_close_callback, NULL));
 				VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(OPEN_DECODER, d, &decoder_open_callback, NULL));
 				VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(INIT_DECODER, d, &decoder_init_callback, NULL));
@@ -266,7 +267,7 @@ static void msimx6vpu_h264_dec_process(MSFilter *f) {
 				VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(INIT_DECODER, d, &decoder_init_callback, NULL));
 			}
 
-			if (d->handle != NULL) {
+			if (d->handle != NULL && d->configure_done) {
 				VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(FILL_DECODER_BUFFER, d, &decoder_fill_buffer_callback, bitstream, size));
 			}
 		}

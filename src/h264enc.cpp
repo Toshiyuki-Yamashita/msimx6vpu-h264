@@ -379,7 +379,6 @@ static MSFilterMethod msimx6vpu_h264_enc_methods[] = {
 	{ MS_VIDEO_ENCODER_GET_CONFIGURATION_LIST, 	msimx6vpu_h264_enc_get_configuration_list	},
 	{ MS_VIDEO_ENCODER_SET_CONFIGURATION,		msimx6vpu_h264_enc_set_configuration		},
 	{ MS_FILTER_ADD_FMTP,						msimx6vpu_h264_enc_add_fmtp					},
-	{ MS_VIDEO_ENCODER_NOTIFY_PLI,             	msimx6vpu_h264_enc_req_vfu             		},
 	{ 0,										NULL										}
 };
 

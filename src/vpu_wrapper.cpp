@@ -1024,12 +1024,12 @@ int VpuWrapper::VpuDecodeFrame(MSIMX6VPUH264DecData* d)
 	ret = vpu_DecGetOutputInfo(d->handle, &outinfos);
 	if (ret != RETCODE_SUCCESS) {
 		ms_error("[vpu_wrapper] vpu_DecGetOutputInfo error: %d", ret);
-		return -2;
+		return -10;
 	}
 	
 	if (outinfos.decodingSuccess != 1) {
 		if (outinfos.decodingSuccess == 0) ms_warning("[vpu_wrapper] incomplete finish of decoding");
-		return -2;
+		return -3;
 	}
 	if (outinfos.notSufficientPsBuffer) {
 		ms_error("[vpu_wrapper] vpu_DecGetOutputInfo error: PS buffer overflow");
