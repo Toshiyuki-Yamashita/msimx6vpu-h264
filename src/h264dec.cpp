@@ -253,9 +253,10 @@ static void msimx6vpu_h264_dec_process(MSFilter *f) {
 		rfc3984_unpack(&d->unpacker, im, &nalus);
 		if (!ms_queue_empty(&nalus)) {
 			uint8_t* bitstream = (uint8_t*) ms_malloc0(d->bitstream_size);
+			bool_t need_reinit = FALSE;
 			int size = nalusToFrame(d, &nalus, &need_reinit, bitstream);
 			
-			if (d->need_reinit && d->configure_done) {
+			if ((d->need_reinit || need_reinit) && d->configure_done) {
 				ms_message("[msimx6vpu_h264_dec] need reinit");
 				d->need_reinit = FALSE;
 				VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(CLOSE_DECODER, d, &decoder_close_callback, NULL));
