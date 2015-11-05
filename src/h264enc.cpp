@@ -113,15 +113,6 @@ void encoder_restart_close_callback (void *v, int result) {
 	ms_filter_lock(d->filter);
 }
 
-
-void encoder_set_bitrate_callback(void *v, int result) {
-	ms_message("[msimx6vpu_h264_enc] set encoder bitrate result: %i", result);
-}
-
-void encoder_set_framerate_callback(void *v, int result) {
-	ms_message("[msimx6vpu_h264_enc] set encoder framerate result: %i", result);
-}
-
 void encoder_uninit_callback(void *v, int result) {
 	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData *)v;
 	ms_message("[msimx6vpu_h264_enc] uninit callback");
@@ -279,14 +270,34 @@ static int msimx6vpu_h264_enc_get_br(MSFilter *f, void *arg){
 	return 0;
 }
 
+static int msimx6vpu_h264_enc_set_configuration(MSFilter *f, void *arg) {
+	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData *)f->data;
+	const MSVideoConfiguration *vconf = (const MSVideoConfiguration *)arg;
+	
+	
+	if (vconf != &d->vconf) memcpy(&d->vconf, vconf, sizeof(MSVideoConfiguration));
+
+	if (d->vconf.required_bitrate > d->vconf.bitrate_limit) {
+		d->vconf.required_bitrate = d->vconf.bitrate_limit;
+	}
+	if (d->handle) {
+		ms_message("[msimx6vpu_h264_enc] reconfiguring encoder");
+		d->restart_started = TRUE;
+		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(CLOSE_ENCODER, d, &encoder_restart_close_callback, NULL));
+		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(OPEN_ENCODER, d, &encoder_restart_open_callback, NULL));
+	}
+
+	ms_message("[msimx6vpu_h264_enc] Video configuration set: bitrate=%dbits/s, fps=%f, vsize=%dx%d", d->vconf.required_bitrate, d->vconf.fps, d->vconf.vsize.width, d->vconf.vsize.height);
+	return 0;
+}
+
 static int msimx6vpu_h264_enc_set_br(MSFilter *f, void *arg) {
 	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData *)f->data;
 	int br = *(int *)arg;
-	
-	d->vconf.required_bitrate = br;
-	if (d->handle) {
+	if (d->handle != NULL) {
 		/* Encoding is already ongoing, do not change video size, only bitrate. */
-		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(SET_ENC_BITRATE, d, &encoder_set_bitrate_callback, NULL));
+		d->vconf.required_bitrate = br;
+		msimx6vpu_h264_enc_set_configuration(f, &d->vconf);
 	} else {
 		MSVideoConfiguration best_vconf = ms_video_find_best_configuration_for_bitrate(d->vconf_list, br, 1);
 		if (&best_vconf != &d->vconf) memcpy(&d->vconf, &best_vconf, sizeof(MSVideoConfiguration));
@@ -302,8 +313,8 @@ static int msimx6vpu_h264_enc_set_fps(MSFilter *f, void *arg){
 	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData*)f->data;
 	float fps = *(float*)arg;
 	d->vconf.fps = fps;
-	if (d->handle) {
-		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(SET_ENC_FRAME_RATE, d, &encoder_set_framerate_callback, NULL));
+	if (d->handle != NULL) {
+		msimx6vpu_h264_enc_set_configuration(f, &d->vconf);
 	}
 	return 0;
 }
@@ -328,16 +339,7 @@ static int msimx6vpu_h264_enc_set_vsize(MSFilter *f, void *arg){
 	d->vconf.vsize = *vs;
 	d->vconf.fps = best_vconf.fps;
 	d->vconf.bitrate_limit = best_vconf.bitrate_limit;
-	
-	if (d->handle) {
-		ms_message("[msimx6vpu_h264_enc] restarting encoder to update configuration");
-		d->restart_started = TRUE;
-		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(CLOSE_ENCODER, d, &encoder_restart_close_callback, NULL));
-		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(OPEN_ENCODER, d, &encoder_restart_open_callback, NULL));
-	}
-
-	ms_message("[msimx6vpu_h264_enc] Video configuration set: bitrate=%dbits/s, fps=%f, vsize=%dx%d", d->vconf.required_bitrate, d->vconf.fps, d->vconf.vsize.width, d->vconf.vsize.height);
-	
+	msimx6vpu_h264_enc_set_configuration(f, &d->vconf);
 	return 0;
 }
 
@@ -375,7 +377,9 @@ static MSFilterMethod msimx6vpu_h264_enc_methods[] = {
 	{ MS_FILTER_REQ_VFU,						msimx6vpu_h264_enc_req_vfu					},
 	{ MS_VIDEO_ENCODER_REQ_VFU,					msimx6vpu_h264_enc_req_vfu					},
 	{ MS_VIDEO_ENCODER_GET_CONFIGURATION_LIST, 	msimx6vpu_h264_enc_get_configuration_list	},
+	{ MS_VIDEO_ENCODER_SET_CONFIGURATION,		msimx6vpu_h264_enc_set_configuration		},
 	{ MS_FILTER_ADD_FMTP,						msimx6vpu_h264_enc_add_fmtp					},
+	{ MS_VIDEO_ENCODER_NOTIFY_PLI,             	msimx6vpu_h264_enc_req_vfu             		},
 	{ 0,										NULL										}
 };
 

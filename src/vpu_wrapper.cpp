@@ -64,10 +64,6 @@ const char* VpuCommand::ToString()
 			return "DECODE_FRAME";
 		case ENCODE_FRAME:
 			return "ENCODE_FRAME";
-		case SET_ENC_BITRATE:
-			return "ENC_SET_BITRATE";
-		case SET_ENC_FRAME_RATE:
-			return "ENC_SET_FRAME_RATE";
 		default:
 			return "Unknown command";
 	}
@@ -113,14 +109,6 @@ void* VpuCommand::Run(VpuWrapper *wrapper)
 		case ENCODE_FRAME:
 			wrapper->encodeFrameCommandCount += 1;
 			result = wrapper->VpuEncodeFrame((MSIMX6VPUH264EncData *) data, (MSQueue *) extraParam);
-			break;
-		case SET_ENC_BITRATE:
-			MSIMX6VPUH264EncData *encData = (MSIMX6VPUH264EncData *) data;
-			result = vpu_EncGiveCommand(encData->handle, ENC_SET_BITRATE, &(encData->vconf.required_bitrate));
-			break;
-		case SET_ENC_FRAME_RATE:
-			MSIMX6VPUH264EncData *encData = (MSIMX6VPUH264EncData *) data;
-			result = vpu_EncGiveCommand(encData->handle, ENC_SET_FRAME_RATE, &(encData->vconf.fps));
 			break;
 		default:
 			return NULL;

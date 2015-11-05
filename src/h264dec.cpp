@@ -171,6 +171,11 @@ void decoder_decode_frame_callback(void *v, int result) {
 		}
 		
 		ms_queue_put(d->filter->outputs[0], dupmsg(d->yuv_msg));
+	} else {
+		ms_filter_notify_no_arg(d->filter, MS_VIDEO_DECODER_DECODING_ERRORS);
+		if (d->avpf_enabled) {
+			ms_filter_notify_no_arg(d->filter, MS_VIDEO_DECODER_SEND_PLI);
+		}
 	}
 	ms_filter_unlock(d->filter);
 }
@@ -207,6 +212,7 @@ static void msimx6vpu_h264_dec_init(MSFilter *f) {
 	d->decode_frame_command_queued = FALSE;
 	d->shutdown = FALSE;
 	d->yuvBufAllocator = ms_yuv_buf_allocator_new();
+	d->avpf_enabled = FALSE;
 	
 	if (!VpuWrapper::Instance()->IsVpuInitialized()) {
 		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(VPU_INIT, NULL, NULL, NULL));
@@ -321,9 +327,16 @@ static int msimx6vpu_h264_get_vsize(MSFilter *f, void *data) {
 	return 0;
 }
 
+static int msimx6vpu_h264_enable_avpf(MSFilter *f, void *data) {
+	MSIMX6VPUH264DecData *d = (MSIMX6VPUH264DecData *)f->data;
+	d->avpf_enabled = *(bool_t*)data;
+	return 0;
+}
+
 static MSFilterMethod msimx6vpu_h264_dec_methods[] = {
 	{	MS_VIDEO_DECODER_RESET_FIRST_IMAGE_NOTIFICATION,	msimx6vpu_h264_reset_first_image	},
 	{	MS_FILTER_GET_VIDEO_SIZE,							msimx6vpu_h264_get_vsize			},
+	{ 	MS_VIDEO_DECODER_ENABLE_AVPF,                    	msimx6vpu_h264_enable_avpf		    },
 	{	0,													NULL								}
 };
 
@@ -335,7 +348,7 @@ MSFilterDesc msimx6vpu_h264_dec_desc = {
 	.id = MS_FILTER_PLUGIN_ID,
 	.name = "MSIMX6VPU-H264Dec",
 	.text = "A H264 decoder using Freescale's IMX6's VPU",
-	.category = MS_FILTER_DECODER,
+	.category = MS_FILTER_DECODER,	
 	.enc_fmt = "H264",
 	.ninputs = 1,
 	.noutputs = 1,

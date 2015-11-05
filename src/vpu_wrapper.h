@@ -105,6 +105,7 @@ extern  "C"
 		mblk_t *yuv_msg;
 		bool_t shutdown;
 		MSYuvBufAllocator *yuvBufAllocator;
+		bool_t avpf_enabled;
 	} MSIMX6VPUH264DecData;
 
 enum VpuCommandEnum {
@@ -118,9 +119,7 @@ enum VpuCommandEnum {
 	CLOSE_ENCODER,
 	CLOSE_DECODER,
 	ENCODE_FRAME,
-	DECODE_FRAME,
-	SET_ENC_BITRATE,
-	SET_ENC_FRAME_RATE
+	DECODE_FRAME
 };
 
 typedef void (*VpuCommandCallback) (void *, int);
