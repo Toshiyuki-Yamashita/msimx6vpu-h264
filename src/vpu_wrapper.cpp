@@ -76,7 +76,6 @@ const char* VpuCommand::ToString()
 void* VpuCommand::Run(VpuWrapper *wrapper)
 {
 	int result = -10;
-	MSIMX6VPUH264EncData *encData = NULL;
  	if (wrapper->debugModeEnabled) ms_message("[vpu_wrapper] running command %s", ToString());
 	switch (command) {
 		case VPU_INIT:
@@ -116,11 +115,11 @@ void* VpuCommand::Run(VpuWrapper *wrapper)
 			result = wrapper->VpuEncodeFrame((MSIMX6VPUH264EncData *) data, (MSQueue *) extraParam);
 			break;
 		case SET_ENC_BITRATE:
-			encData = (MSIMX6VPUH264EncData *) data;
+			MSIMX6VPUH264EncData *encData = (MSIMX6VPUH264EncData *) data;
 			result = vpu_EncGiveCommand(encData->handle, ENC_SET_BITRATE, &(encData->vconf.required_bitrate));
 			break;
 		case SET_ENC_FRAME_RATE:
-			encData = (MSIMX6VPUH264EncData *) data;
+			MSIMX6VPUH264EncData *encData = (MSIMX6VPUH264EncData *) data;
 			result = vpu_EncGiveCommand(encData->handle, ENC_SET_FRAME_RATE, &(encData->vconf.fps));
 			break;
 		default:
