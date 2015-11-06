@@ -274,7 +274,7 @@ static int msimx6vpu_h264_enc_set_configuration(MSFilter *f, void *arg) {
 	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData *)f->data;
 	const MSVideoConfiguration *vconf = (const MSVideoConfiguration *)arg;
 	
-	
+	ms_filter_lock(f);
 	if (vconf != &d->vconf) memcpy(&d->vconf, vconf, sizeof(MSVideoConfiguration));
 
 	if (d->vconf.required_bitrate > d->vconf.bitrate_limit) {
@@ -286,6 +286,7 @@ static int msimx6vpu_h264_enc_set_configuration(MSFilter *f, void *arg) {
 		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(CLOSE_ENCODER, d, &encoder_restart_close_callback, NULL));
 		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(OPEN_ENCODER, d, &encoder_restart_open_callback, NULL));
 	}
+	ms_filter_unlock(f);
 
 	ms_message("[msimx6vpu_h264_enc] Video configuration set: bitrate=%dbits/s, fps=%f, vsize=%dx%d", d->vconf.required_bitrate, d->vconf.fps, d->vconf.vsize.width, d->vconf.vsize.height);
 	return 0;
@@ -295,16 +296,20 @@ static int msimx6vpu_h264_enc_set_br(MSFilter *f, void *arg) {
 	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData *)f->data;
 	int br = *(int *)arg;
 	if (d->handle != NULL) {
+		ms_filter_lock(f);
 		/* Encoding is already ongoing, do not change video size, only bitrate. */
 		d->vconf.required_bitrate = br;
+		ms_filter_unlock(f);
 		msimx6vpu_h264_enc_set_configuration(f, &d->vconf);
 	} else {
+		ms_filter_lock(f);
 		MSVideoConfiguration best_vconf = ms_video_find_best_configuration_for_bitrate(d->vconf_list, br, 1);
 		if (&best_vconf != &d->vconf) memcpy(&d->vconf, &best_vconf, sizeof(MSVideoConfiguration));
 		if (d->vconf.required_bitrate > d->vconf.bitrate_limit) {
 			d->vconf.required_bitrate = d->vconf.bitrate_limit;
 		}
 		ms_message("[msimx6vpu_h264_enc] Video configuration: bitrate=%dbits/s, fps=%f, vsize=%dx%d", d->vconf.required_bitrate, d->vconf.fps, d->vconf.vsize.width, d->vconf.vsize.height);
+		ms_filter_unlock(f);
 	}
 	return 0;
 }
@@ -312,7 +317,9 @@ static int msimx6vpu_h264_enc_set_br(MSFilter *f, void *arg) {
 static int msimx6vpu_h264_enc_set_fps(MSFilter *f, void *arg){
 	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData*)f->data;
 	float fps = *(float*)arg;
+	ms_filter_lock(f);
 	d->vconf.fps = fps;
+	ms_filter_unlock(f);
 	if (d->handle != NULL) {
 		msimx6vpu_h264_enc_set_configuration(f, &d->vconf);
 	}
@@ -335,17 +342,21 @@ static int msimx6vpu_h264_enc_set_vsize(MSFilter *f, void *arg){
 	MSVideoConfiguration best_vconf;
 	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData *)f->data;
 	MSVideoSize *vs = (MSVideoSize *)arg;
+	ms_filter_lock(f);
 	best_vconf = ms_video_find_best_configuration_for_size(d->vconf_list, *vs, 1);
 	d->vconf.vsize = *vs;
 	d->vconf.fps = best_vconf.fps;
 	d->vconf.bitrate_limit = best_vconf.bitrate_limit;
+	ms_filter_unlock(f);
 	msimx6vpu_h264_enc_set_configuration(f, &d->vconf);
 	return 0;
 }
 
 static int msimx6vpu_h264_enc_req_vfu(MSFilter *f, void *arg){
 	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData*)f->data;
+	ms_filter_lock(f);
 	d->generate_keyframe = TRUE;
+	ms_filter_unlock(f);
 	return 0;
 }
 
@@ -360,10 +371,12 @@ static int msimx6vpu_h264_enc_add_fmtp(MSFilter *f, void *arg){
 	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData *)f->data;
 	const char *fmtp = (const char *)arg;
 	char value[12];
+	ms_filter_lock(f);
 	if (fmtp_get_value(fmtp, "packetization-mode", value, sizeof(value))) {
 		d->mode = atoi(value);
 		ms_message("[msimx6vpu_h264_enc] packetization-mode set to %i", d->mode);
 	}
+	ms_filter_unlock(f);
 	return 0;
 }
 
