@@ -139,15 +139,17 @@ void decoder_open_callback(void *v, int result) {
 
 void decoder_init_callback(void *v, int result) {
 	MSIMX6VPUH264DecData *d = (MSIMX6VPUH264DecData *)v;
+	
 	if (result == 0) {
 		ms_filter_lock(d->filter);
 		d->configure_done = TRUE;
 		ms_filter_unlock(d->filter);
 		ms_message("[msimx6vpu_h264_dec] decoder initialised");
 	} else if (result == -4) {
+		ms_warning("[msimx6vpu_h264_dec] decoder not openned yet, let's do it");
 		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(OPEN_DECODER, d, &decoder_open_callback, NULL));
 	} else if (result != -3) {
-		ms_error("[msimx6vpu_h264_dec] failed to initialise the decoder");
+		ms_error("[msimx6vpu_h264_dec] failed to initialise the decoder: %i", result);
 	}
 }
 
