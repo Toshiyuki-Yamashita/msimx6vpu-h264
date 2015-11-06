@@ -1024,7 +1024,7 @@ int VpuWrapper::VpuDecodeFrame(MSIMX6VPUH264DecData* d)
 	ret = vpu_DecGetOutputInfo(d->handle, &outinfos);
 	if (ret != RETCODE_SUCCESS) {
 		ms_error("[vpu_wrapper] vpu_DecGetOutputInfo error: %d", ret);
-		return -10;
+		return -1;
 	}
 	
 	if (outinfos.decodingSuccess != 1) {

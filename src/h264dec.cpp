@@ -173,7 +173,7 @@ void decoder_decode_frame_callback(void *v, int result) {
 		ms_queue_put(d->filter->outputs[0], dupmsg(d->yuv_msg));
 	} else if (result == -3) {
 		ms_filter_notify_no_arg(d->filter, MS_VIDEO_DECODER_DECODING_ERRORS);
-	} else if (result == -10) {
+	} else if (result == -1) {
 		d->need_reinit = TRUE;
 	}
 	ms_filter_unlock(d->filter);
