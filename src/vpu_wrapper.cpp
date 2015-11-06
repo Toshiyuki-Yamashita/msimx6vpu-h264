@@ -1029,7 +1029,7 @@ int VpuWrapper::VpuDecodeFrame(MSIMX6VPUH264DecData* d)
 	
 	if (outinfos.decodingSuccess != 1) {
 		if (outinfos.decodingSuccess == 0) ms_warning("[vpu_wrapper] incomplete finish of decoding");
-		return -3;
+		return -2;
 	}
 	if (outinfos.notSufficientPsBuffer) {
 		ms_error("[vpu_wrapper] vpu_DecGetOutputInfo error: PS buffer overflow");
@@ -1066,7 +1066,7 @@ int VpuWrapper::VpuDecodeFrame(MSIMX6VPUH264DecData* d)
 				ms_warning("[vpu_wrapper] failed to clear frame buffer %d", i);
 			}
 		}
-		return -1;
+		return -3;
 	}
 }
 

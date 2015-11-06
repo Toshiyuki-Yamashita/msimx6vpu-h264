@@ -223,15 +223,15 @@ static void msimx6vpu_h264_dec_init(MSFilter *f) {
 	d->packet_num = 0;
 	d->filter = f;
 	f->data = d;
-	
-	if (!d->handle) {
-		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(OPEN_DECODER, d, &decoder_open_callback, NULL));
-	}
 	rfc3984_init(&d->unpacker);
 }
 
 static void msimx6vpu_h264_dec_preprocess(MSFilter *f) {
 	MSIMX6VPUH264DecData *d = (MSIMX6VPUH264DecData*)f->data;
+	
+	if (!d->handle) {
+		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(OPEN_DECODER, d, &decoder_open_callback, NULL));
+	}
 }
 
 static void msimx6vpu_h264_dec_process(MSFilter *f) {
@@ -287,18 +287,18 @@ static void msimx6vpu_h264_dec_process(MSFilter *f) {
 
 static void msimx6vpu_h264_dec_postprocess(MSFilter *f) {
 	MSIMX6VPUH264DecData *d = (MSIMX6VPUH264DecData*)f->data;
+	
+	d->shutdown = TRUE;
+	if (d->handle) {
+		ms_message("[msimx6vpu_h264_dec] shutting down decoder");
+		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(CLOSE_DECODER, d, &decoder_close_callback, NULL));
+	}
 }
 
 static void msimx6vpu_h264_dec_uninit(MSFilter *f) {
 	MSIMX6VPUH264DecData *d = (MSIMX6VPUH264DecData *)f->data;
 	
-	d->shutdown = TRUE;
 	rfc3984_uninit(&d->unpacker);
-	
-	if (d->handle) {
-		ms_message("[msimx6vpu_h264_dec] shutting down decoder");
-		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(CLOSE_DECODER, d, &decoder_close_callback, NULL));
-	}
 	
 	VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(VPU_UNINIT, d, &decoder_uninit_callback, NULL));
 	VpuWrapper::CheckUnInitStatus();
@@ -311,8 +311,10 @@ static void msimx6vpu_h264_dec_uninit(MSFilter *f) {
 static int msimx6vpu_h264_reset_first_image(MSFilter *f, void *data) {
 	MSIMX6VPUH264DecData *d = (MSIMX6VPUH264DecData *)f->data;
 	
+	ms_filter_lock(f);
 	d->first_image_decoded = FALSE;
 	ms_message("[msimx6vpu_h264_dec] first image resetted");
+	ms_filter_unlock(f);
 	
 	return 0;
 }
@@ -321,6 +323,7 @@ static int msimx6vpu_h264_get_vsize(MSFilter *f, void *data) {
 	MSIMX6VPUH264DecData *d = (MSIMX6VPUH264DecData *)f->data;
 	MSVideoSize *vsize = (MSVideoSize *)data;
 	
+	ms_filter_lock(f);
 	if (d->first_image_decoded == TRUE) {
 		vsize->width = d->picwidth;
 		vsize->height = d->picheight;
@@ -328,13 +331,16 @@ static int msimx6vpu_h264_get_vsize(MSFilter *f, void *data) {
 		vsize->width = MS_VIDEO_SIZE_UNKNOWN_W;
 		vsize->height = MS_VIDEO_SIZE_UNKNOWN_H;
 	}
+	ms_filter_unlock(f);
 	
 	return 0;
 }
 
 static int msimx6vpu_h264_enable_avpf(MSFilter *f, void *data) {
 	MSIMX6VPUH264DecData *d = (MSIMX6VPUH264DecData *)f->data;
+	ms_filter_lock(f);
 	d->avpf_enabled = *(bool_t*)data;
+	ms_filter_unlock(f);
 	return 0;
 }
 
