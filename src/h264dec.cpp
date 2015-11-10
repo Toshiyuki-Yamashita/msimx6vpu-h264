@@ -256,17 +256,17 @@ static void msimx6vpu_h264_dec_process(MSFilter *f) {
 			uint8_t* bitstream = (uint8_t*) ms_malloc0(d->bitstream_size);
 			bool_t need_reinit = FALSE;
 			int size = nalusToFrame(d, &nalus, &need_reinit, bitstream);
+			d->need_reinit |= need_reinit;
 			
-			if ((d->need_reinit || need_reinit) && d->configure_done) {
+			if (d->need_reinit && d->configure_done) {
 				ms_message("[msimx6vpu_h264_dec] need reinit");
-				d->need_reinit = FALSE;
 				VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(CLOSE_DECODER, d, &decoder_close_callback, NULL));
 				VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(OPEN_DECODER, d, &decoder_open_callback, NULL));
 				VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(FILL_DECODER_BUFFER, d, &decoder_fill_buffer_callback, bitstream, size));
 				VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(INIT_DECODER, d, &decoder_init_callback, NULL));
 			}
 			
-			if (d->handle != NULL) {
+			if (d->handle != NULL && !d->need_reinit) {
 				if (d->configure_done) {
 					VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(FILL_DECODER_BUFFER, d, &decoder_fill_buffer_callback, bitstream, size));
 				} else {
@@ -274,6 +274,7 @@ static void msimx6vpu_h264_dec_process(MSFilter *f) {
 					VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(INIT_DECODER, d, &decoder_init_callback, NULL));
 				}
 			}
+			d->need_reinit = FALSE;
 		}
 		d->packet_num++;
 	}
