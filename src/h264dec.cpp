@@ -150,6 +150,7 @@ void decoder_init_callback(void *v, int result) {
 		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(OPEN_DECODER, d, &decoder_open_callback, NULL));
 	} else if (result != -3) {
 		ms_error("[msimx6vpu_h264_dec] failed to initialise the decoder: %i", result);
+		d->need_reinit = TRUE;
 	}
 }
 
@@ -251,6 +252,7 @@ static void msimx6vpu_h264_dec_process(MSFilter *f) {
 			d->sps = NULL;
 			d->pps = NULL;
 		}
+		
 		rfc3984_unpack(&d->unpacker, im, &nalus);
 		if (!ms_queue_empty(&nalus)) {
 			uint8_t* bitstream = (uint8_t*) ms_malloc0(d->bitstream_size);
@@ -270,6 +272,7 @@ static void msimx6vpu_h264_dec_process(MSFilter *f) {
 				if (d->configure_done) {
 					VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(FILL_DECODER_BUFFER, d, &decoder_fill_buffer_callback, bitstream, size));
 				} else {
+					ms_message("[msimx6vpu_h264_dec] init not done yet");
 					VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(FILL_DECODER_BUFFER, d, &decoder_fill_buffer_callback, bitstream, size));
 					VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(INIT_DECODER, d, &decoder_init_callback, NULL));
 				}
@@ -278,6 +281,7 @@ static void msimx6vpu_h264_dec_process(MSFilter *f) {
 		}
 		d->packet_num++;
 	}
+	
 	if (d->configure_done && !d->decode_frame_command_queued) {
 		d->decode_frame_command_queued = TRUE;
 		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(DECODE_FRAME, d, &decoder_decode_frame_callback, NULL));
