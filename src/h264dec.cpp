@@ -140,18 +140,18 @@ void decoder_open_callback(void *v, int result) {
 void decoder_init_callback(void *v, int result) {
 	MSIMX6VPUH264DecData *d = (MSIMX6VPUH264DecData *)v;
 	
+	ms_filter_lock(d->filter);
 	if (result == 0) {
-		ms_filter_lock(d->filter);
 		d->configure_done = TRUE;
-		ms_filter_unlock(d->filter);
 		ms_message("[msimx6vpu_h264_dec] decoder initialised");
 	} else if (result == -4) {
 		ms_warning("[msimx6vpu_h264_dec] decoder not openned yet, let's do it");
 		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(OPEN_DECODER, d, &decoder_open_callback, NULL));
 	} else if (result != -3) {
-		ms_error("[msimx6vpu_h264_dec] failed to initialise the decoder: %i", result);
+		ms_error("[msimx6vpu_h264_dec] failed to initialise the decoder: %i, let's reinit it", result);
 		d->need_reinit = TRUE;
 	}
+	ms_filter_unlock(d->filter);
 }
 
 void decoder_fill_buffer_callback(void *v, int result) {
@@ -258,9 +258,9 @@ static void msimx6vpu_h264_dec_process(MSFilter *f) {
 			uint8_t* bitstream = (uint8_t*) ms_malloc0(d->bitstream_size);
 			bool_t need_reinit = FALSE;
 			int size = nalusToFrame(d, &nalus, &need_reinit, bitstream);
-			d->need_reinit |= need_reinit;
+			d->need_reinit = d->need_reinit | need_reinit;
 			
-			if (d->need_reinit && d->configure_done) {
+			if (d->need_reinit) {
 				ms_message("[msimx6vpu_h264_dec] need reinit");
 				VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(CLOSE_DECODER, d, &decoder_close_callback, NULL));
 				VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(OPEN_DECODER, d, &decoder_open_callback, NULL));
