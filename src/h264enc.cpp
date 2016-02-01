@@ -230,7 +230,7 @@ static void msimx6vpu_h264_enc_process(MSFilter *f) {
 		freemsg(im);
 	}
 	
-	if (d->configure_done && !d->encode_frame_command_queued) {
+	if (d->configure_done && !d->encode_frame_command_queued && !d->restart_started && !d->init_command_queued) {
 		d->encode_frame_command_queued = TRUE;
 		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(ENCODE_FRAME, d, &encoder_encode_frame_callback, d->nalus));
 	}
