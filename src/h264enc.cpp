@@ -78,25 +78,9 @@ void encoder_init_callback(void *v, int result) {
 
 void encoder_encode_frame_callback(void *v, int result) {
 	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData *)v;
-	uint32_t ts = 0;
 	
 	ms_filter_lock(d->filter);
 	d->encode_frame_command_queued = FALSE;
-	
-	if (result < 0) {
-		ms_filter_unlock(d->filter);
-		return;
-	}
-	
-	ts = d->filter->ticker->time * 90LL;
-	if (!ms_queue_empty(d->nalus)) {
-		rfc3984_pack(d->packer, d->nalus, d->filter->outputs[0], ts);
-		if (d->packet_num == 0) {
-			ms_message("[msimx6vpu_h264_enc] first frame encoded");
-			ms_video_starter_first_frame(&d->starter, d->filter->ticker->time);
-		}
-		d->packet_num++;
-	}
 	ms_filter_unlock(d->filter);
 }
 
@@ -234,12 +218,24 @@ static void msimx6vpu_h264_enc_process(MSFilter *f) {
 		d->encode_frame_command_queued = TRUE;
 		VpuWrapper::Instance()->VpuQueueCommand(new VpuCommand(ENCODE_FRAME, d, &encoder_encode_frame_callback, d->nalus));
 	}
+	
+	if (d->configure_done && !d->restart_started && !d->init_command_queued && !ms_queue_empty(d->nalus)) {
+		uint32_t ts = d->filter->ticker->time * 90LL;
+		rfc3984_pack(d->packer, d->nalus, d->filter->outputs[0], ts);
+		if (d->packet_num == 0) {
+			ms_message("[msimx6vpu_h264_enc] first frame encoded");
+			ms_video_starter_first_frame(&d->starter, d->filter->ticker->time);
+		}
+		d->packet_num++;
+	}
+	
 	ms_filter_unlock(f);
 }
 
 
 static void msimx6vpu_h264_enc_postprocess(MSFilter *f) {
 	MSIMX6VPUH264EncData *d = (MSIMX6VPUH264EncData*)f->data;
+	
 }
 
 

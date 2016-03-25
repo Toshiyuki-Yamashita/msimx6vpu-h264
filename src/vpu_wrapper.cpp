@@ -596,6 +596,7 @@ void free_framebuffer(IMX6VPUFrameBuffer *fb) {
 			IOFreePhyMem(&fb->desc);
 		}
 		memset(&fb->desc, 0, sizeof(vpu_mem_desc));
+		fb = NULL;
 	}
 }
 
