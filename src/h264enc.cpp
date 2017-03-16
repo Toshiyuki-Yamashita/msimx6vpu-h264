@@ -417,8 +417,8 @@ MSFilterDesc msimx6vpu_h264_enc_desc = {
  *****************************************************************************/
 
 extern "C" {
-	MS2_PUBLIC void libmsimx6vpu_h264_init_enc(void) {
-		ms_filter_register(&msimx6vpu_h264_enc_desc);
+	MS2_PUBLIC void libmsimx6vpu_h264_init_enc(MSFactory *f) {
+		ms_factory_register_filter(f, &msimx6vpu_h264_enc_desc);
 		ms_message("msimx6vpu-h264 encoder plugin registered.");
 	}
 }

@@ -25,6 +25,7 @@ extern  "C"
 	#include <vpu_io.h>
 	
 	#include "mediastreamer2/msfilter.h"
+	#include "mediastreamer2/msfactory.h"
 	#include "mediastreamer2/msinterfaces.h"
 	#include "mediastreamer2/msticker.h"
 	#include "mediastreamer2/msvideo.h"

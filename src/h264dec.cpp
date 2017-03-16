@@ -382,8 +382,8 @@ MSFilterDesc msimx6vpu_h264_dec_desc = {
  *****************************************************************************/
 
 extern "C" {
-	MS2_PUBLIC void libmsimx6vpu_h264_init_dec(void) {
-		ms_filter_register(&msimx6vpu_h264_dec_desc);
+	MS2_PUBLIC void libmsimx6vpu_h264_init_dec(MSFactory *f) {
+		ms_factory_register_filter(f, &msimx6vpu_h264_dec_desc);
 		ms_message("msimx6vpu-h264 decoder plugin registered.");
 	}
 }

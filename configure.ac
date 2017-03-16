@@ -1,5 +1,5 @@
 dnl Process this file with autoconf to produce a configure script.
-AC_INIT([msimx6vpu_h264],[0.1.0])
+AC_INIT([msimx6vpu_h264],[0.2.0])
 
 AM_INIT_AUTOMAKE([tar-ustar])
 

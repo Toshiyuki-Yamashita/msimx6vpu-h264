@@ -17,18 +17,18 @@ along with this program; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 */
 
-#include "mediastreamer2/mscommon.h"
+#include "mediastreamer2/msfactory.h"
 
-extern void libmsimx6vpu_h264_init_enc(void);
-extern void libmsimx6vpu_h264_init_dec(void);
+extern void libmsimx6vpu_h264_init_enc(MSFactory *f);
+extern void libmsimx6vpu_h264_init_dec(MSFactory *f);
 extern void vpu_wrapper_init_class(void);
 
 /******************************************************************************
  * Init routine																  *
  *****************************************************************************/
 
-MS2_PUBLIC void libmsimx6vpu_h264_init(void) {
+MS2_PUBLIC void libmsimx6vpu_h264_init(MSFactory *f) {
 	vpu_wrapper_init_class();
-	libmsimx6vpu_h264_init_enc();
-	libmsimx6vpu_h264_init_dec();
+	libmsimx6vpu_h264_init_enc(f);
+	libmsimx6vpu_h264_init_dec(f);
 }
