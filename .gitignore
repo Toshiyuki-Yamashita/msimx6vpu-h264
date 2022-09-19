@@ -16,4 +16,5 @@ missing
 *.lo
 *.o
 *.la
+.vscode/*
 
