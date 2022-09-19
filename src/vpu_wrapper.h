@@ -159,6 +159,7 @@ public:
 	bool_t isVpuInitialized;
 	bool_t debugModeEnabled;
 	bool_t threadRunning;
+	bool_t isVpuUninitializing;
 private:
 	VpuWrapper();
 	int VpuInit();

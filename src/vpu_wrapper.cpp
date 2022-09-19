@@ -196,7 +196,7 @@ void* run(VpuWrapper *wrapper)
 	ms_thread_exit(NULL);
 }
 
-VpuWrapper::VpuWrapper() : isVpuInitialized(FALSE), debugModeEnabled(TRUE), threadRunning(FALSE), encodeFrameCommandCount(0), decodeFrameCommandCount(0), encoderCount(0), decoderCount(0), notify_me_on_thread_exit(FALSE)
+VpuWrapper::VpuWrapper() : isVpuInitialized(FALSE), debugModeEnabled(TRUE), threadRunning(FALSE), encodeFrameCommandCount(0), decodeFrameCommandCount(0), encoderCount(0), decoderCount(0), notify_me_on_thread_exit(FALSE), isVpuUninitializing(FALSE)
 {
 	ms_mutex_init(&mutex, NULL);
 	if (debugModeEnabled) ms_message("[vpu_wrapper] vpu wrapper created");
@@ -204,6 +204,11 @@ VpuWrapper::VpuWrapper() : isVpuInitialized(FALSE), debugModeEnabled(TRUE), thre
 
 void VpuWrapper::VpuQueueCommand(VpuCommand *command)
 {
+	if (isVpuUninitializing)
+	{
+		if (debugModeEnabled) ms_message("[vpu_wrapper] command queued after VPU_UNINIT");
+		return ;
+	}
 	ms_mutex_lock(&mutex);
 	commandQueue.push(command);
  	if (debugModeEnabled) ms_message("[vpu_wrapper] command queued %s", command->ToString());
@@ -1252,7 +1257,13 @@ int VpuWrapper::VpuUnInit()
 	}
 	if (commandQueue.size() > 0) {
 		if (debugModeEnabled) ms_warning("[vpuwrapper] There is still at least one job in the queue (=%i), possibly an OPEN command, so let's skip the uninit", commandQueue.size());
-		return -3;
+		/* stop queuing */
+		isVpuUninitializing = TRUE;
+		ms_usleep(500);
+		while (commandQueue.size() > 0)
+		{
+			delete this->VpuDequeueCommand();
+		}
 	}
 	
 	vpu_UnInit();
