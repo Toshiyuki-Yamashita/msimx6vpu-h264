@@ -394,7 +394,7 @@ int VpuWrapper::VpuOpenEncoder(MSIMX6VPUH264EncData* d)
 	oparam.EncStdParam.avcParam.avc_deblkFilterOffsetAlpha = 0;
 	oparam.EncStdParam.avcParam.avc_deblkFilterOffsetBeta = 0;
 	oparam.EncStdParam.avcParam.interview_en = 1;
-	oparam.gopSize = d->vconf.fps * 10; // One I frame every ten seconds
+	oparam.gopSize = d->vconf.fps ; // One I frame every ten seconds
 	oparam.userQpMin = -1; // Quantization step, -1 for default minimum value, else 0-51
 	oparam.userQpMax = -1; // Quantization step, -1 for default maxmimum value, else 0-51
 	
