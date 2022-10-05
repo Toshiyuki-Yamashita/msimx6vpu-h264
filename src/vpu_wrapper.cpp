@@ -389,7 +389,7 @@ int VpuWrapper::VpuOpenEncoder(MSIMX6VPUH264EncData* d)
 	oparam.RcIntervalMode = 1; // Encoder rate control at frame level
 	oparam.avcIntra16x16OnlyModeEnable = 0;
 	oparam.EncStdParam.avcParam.paraset_refresh_en = 0; // Auto insert of SPS/PPS
-	oparam.EncStdParam.avcParam.avc_constrainedIntraPredFlag = 1;
+	oparam.EncStdParam.avcParam.avc_constrainedIntraPredFlag = 0;
 	oparam.EncStdParam.avcParam.avc_disableDeblk = 0; // Deblocking, 1 to disable, 0 to enable
 	oparam.EncStdParam.avcParam.avc_deblkFilterOffsetAlpha = 0;
 	oparam.EncStdParam.avcParam.avc_deblkFilterOffsetBeta = 0;
